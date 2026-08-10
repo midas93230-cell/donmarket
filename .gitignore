@@ -1,0 +1,17 @@
+# Environnement
+.venv/
+__pycache__/
+*.py[cod]
+.pytest_cache/
+
+# Secrets — ne JAMAIS suivre
+.env
+*.key
+*.pem
+credentials*.json
+
+# Données locales (base SQLite, exports)
+data/
+*.db
+*.sqlite3
+*.parquet

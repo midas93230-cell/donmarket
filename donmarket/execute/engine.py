@@ -1,0 +1,323 @@
+"""Le moteur d'exécution — la seule partie du dépôt qui dépense de l'argent.
+
+## Ce qui est délégué, et pourquoi
+
+La signature des ordres passe par `py-clob-client`, le client officiel de
+Polymarket. C'est la seule dépendance externe du projet, et elle est assumée :
+un ordre Polymarket est une structure EIP-712 signée puis authentifiée par des
+en-têtes HMAC dérivés d'une clé API elle-même dérivée de la clé privée. Écrire
+cela à la main donnerait un code qui passe les tests et se trompe en
+production — et l'erreur se paierait en dollars, pas en trace d'exception.
+
+## Trois verrous, dans cet ordre
+
+1. **`armed`** — faux par défaut. Sans lui, le moteur calcule, journalise et ne
+   signe rien. C'est le mode par lequel tout doit passer d'abord.
+2. **Les plafonds** (`execute/limits`) — appliqués AVANT signature, donc avant
+   qu'un dollar puisse bouger. Purs, testables sans compte.
+3. **La clé** — absente, rien ne part, quel que soit l'état des deux autres.
+
+Aucun de ces verrous ne se lève tout seul. En particulier, `armed=True` n'est
+jamais déduit de la présence d'une clé : avoir une clé configurée veut dire
+qu'on POURRAIT trader, pas qu'on a décidé de le faire maintenant.
+
+## Ce que ce module ne fait jamais
+
+Il ne lit pas de secret hors de `execute/credentials`, n'en journalise aucun,
+et n'en met aucun dans un objet renvoyé. Les messages d'erreur du client sont
+tronqués avant journalisation : une requête signée rejetée peut contenir des
+en-têtes d'authentification dans sa trace.
+"""
+
+from __future__ import annotations
+
+import logging
+import os
+from dataclasses import dataclass
+from typing import Sequence
+
+from .credentials import API_VARS, PRIVATE_KEY_VAR, load_credentials
+from .limits import ExecutionLimits, GateDecision, gate, order_cost_usd
+
+logger = logging.getLogger(__name__)
+
+CLOB_HOST = "https://clob.polymarket.com"
+
+# Polygon. Polymarket ne règle sur aucune autre chaîne : une erreur ici ne
+# produit pas un ordre invalide mais un ordre signé pour un autre réseau.
+POLYGON_CHAIN_ID = 137
+
+# Type de signature attendu par le CLOB.
+#
+# 0 = clé privée qui détient elle-même l'USDC (portefeuille externe).
+# 1 = compte créé par e-mail sur polymarket.com : les fonds sont sur un proxy,
+#     la clé ne fait que signer pour lui.
+# 2 = portefeuille de navigateur connecté à polymarket.com, proxy également.
+#
+# Se tromper ne casse pas la signature : le CLOB accepte l'ordre puis le rejette
+# pour solde insuffisant, en pointant une adresse qui n'est pas celle où l'argent
+# se trouve. C'est le piège le plus déroutant de cette API, d'où le réglage
+# explicite plutôt qu'un défaut silencieux.
+SIGNATURE_TYPE_EOA = 0
+SIGNATURE_TYPE_EMAIL_PROXY = 1
+SIGNATURE_TYPE_BROWSER_PROXY = 2
+
+SIGNATURE_TYPE_VAR = "POLYMARKET_SIGNATURE_TYPE"
+FUNDER_VAR = "POLYMARKET_FUNDER"
+
+VALID_SIGNATURE_TYPES = (
+    SIGNATURE_TYPE_EOA,
+    SIGNATURE_TYPE_EMAIL_PROXY,
+    SIGNATURE_TYPE_BROWSER_PROXY,
+)
+
+
+def configured_signature_type() -> int:
+    """Type de signature lu dans l'environnement.
+
+    Pas de défaut implicite : recharger depuis polymarket.com (carte, PayPal,
+    virement) place les fonds sur un PROXY, donc le type 1 ou 2 ; seule une clé
+    qui détient elle-même l'USDC relève du type 0. Un défaut à 0 conviendrait
+    donc à la minorité des cas et échouerait de la façon la plus déroutante qui
+    soit — ordre accepté, puis rejeté pour solde insuffisant sur une adresse
+    vide. On exige que ce soit dit.
+    """
+    raw = os.getenv(SIGNATURE_TYPE_VAR)
+    if raw is None or not raw.strip():
+        raise ExecutionRefused(
+            f"{SIGNATURE_TYPE_VAR} non défini. 0 = la clé détient l'USDC ; "
+            "1 = compte polymarket.com par e-mail (fonds sur un proxy) ; "
+            "2 = portefeuille de navigateur connecté à polymarket.com."
+        )
+    try:
+        value = int(raw.strip())
+    except ValueError:
+        raise ExecutionRefused(f"{SIGNATURE_TYPE_VAR} doit être 0, 1 ou 2") from None
+    if value not in VALID_SIGNATURE_TYPES:
+        raise ExecutionRefused(f"{SIGNATURE_TYPE_VAR} doit être 0, 1 ou 2, pas {value}")
+    return value
+
+
+def configured_funder() -> str | None:
+    """Adresse qui DÉTIENT les fonds — le proxy, pas la clé, en type 1 ou 2.
+
+    `POLYMARKET_FUNDER` prime sur `POLYMARKET_ADDRESS` : la seconde est
+    l'adresse de la clé, et les confondre est exactement l'erreur que le
+    réglage du type de signature cherche à éviter.
+    """
+    return os.getenv(FUNDER_VAR) or os.getenv("POLYMARKET_ADDRESS") or None
+
+
+class ExecutionRefused(RuntimeError):
+    """Le moteur refuse d'agir. Jamais levée pour une erreur réseau."""
+
+
+@dataclass(frozen=True)
+class SentOrder:
+    """Un ordre effectivement transmis, et ce que le CLOB en a dit."""
+
+    condition_id: str
+    token_id: str
+    side: str
+    price: float
+    size: float
+    cost_usd: float
+    order_id: str | None
+    accepted: bool
+    detail: str = ""
+
+
+@dataclass(frozen=True)
+class ExecutionResult:
+    """Le compte rendu complet : envoyé, refusé par le portier, échoué.
+
+    Les trois catégories sont distinctes parce qu'elles appellent trois
+    réactions différentes. Un refus de portier est un réglage à revoir ; un
+    échec CLOB est un problème de compte ou de marché ; un envoi accepté est de
+    l'argent qui a bougé.
+    """
+
+    armed: bool
+    sent: tuple[SentOrder, ...] = ()
+    refused: tuple[tuple[object, str], ...] = ()
+    failed: tuple[tuple[object, str], ...] = ()
+
+    @property
+    def accepted_count(self) -> int:
+        return sum(1 for order in self.sent if order.accepted)
+
+    @property
+    def engaged_usd(self) -> float:
+        return sum(order.cost_usd for order in self.sent if order.accepted)
+
+    @property
+    def is_dry_run(self) -> bool:
+        return not self.armed
+
+
+def _redact(message: object, limit: int = 200) -> str:
+    """Tronque un message d'erreur avant journalisation.
+
+    Une exception de requête signée peut porter les en-têtes d'authentification
+    dans sa représentation. On garde de quoi diagnostiquer, pas de quoi rejouer.
+    """
+    text = str(message).replace("\n", " ")
+    return text[:limit] + ("…" if len(text) > limit else "")
+
+
+def preflight() -> tuple[bool, tuple[str, ...]]:
+    """Ce qui manque pour pouvoir signer. Ne renvoie jamais de valeur secrète."""
+    credentials = load_credentials()
+    missing: list[str] = []
+    if not credentials.has_private_key:
+        missing.append(PRIVATE_KEY_VAR)
+    if not credentials.has_api_credentials:
+        missing.extend(name for name in API_VARS if not os.getenv(name))
+    return (not missing), tuple(missing)
+
+
+def build_clob_client(*, signature_type: int | None = None, funder: str | None = None):
+    """Construit le client officiel, identifiants API compris.
+
+    Importé ici et non en tête de module : `py-clob-client` tire `web3` et ses
+    dépendances de cryptographie, soit plusieurs secondes d'import. Le reste de
+    DONMARKET — balayage, mesures, page locale — n'en a aucun besoin et ne doit
+    pas les payer.
+    """
+    from py_clob_client.client import ClobClient
+    from py_clob_client.clob_types import ApiCreds
+
+    private_key = os.getenv(PRIVATE_KEY_VAR)
+    if not private_key:
+        raise ExecutionRefused(f"{PRIVATE_KEY_VAR} absente : aucune signature possible")
+
+    resolved_type = (
+        configured_signature_type() if signature_type is None else signature_type
+    )
+    resolved_funder = funder or configured_funder()
+
+    client = ClobClient(
+        CLOB_HOST,
+        chain_id=POLYGON_CHAIN_ID,
+        key=private_key,
+        signature_type=resolved_type,
+        funder=resolved_funder,
+    )
+
+    key = os.getenv("POLYMARKET_API_KEY")
+    secret = os.getenv("POLYMARKET_API_SECRET")
+    passphrase = os.getenv("POLYMARKET_API_PASSPHRASE")
+    if key and secret and passphrase:
+        client.set_api_creds(ApiCreds(key, secret, passphrase))
+    else:
+        # Dérivation déterministe depuis la clé privée : la même clé redonne
+        # toujours les mêmes identifiants, donc régénérer n'invalide rien.
+        logger.info("Identifiants API absents du .env — dérivation depuis la clé privée")
+        client.set_api_creds(client.create_or_derive_api_creds())
+
+    return client
+
+
+def execute_plan(
+    orders: Sequence[object],
+    *,
+    limits: ExecutionLimits,
+    armed: bool = False,
+    already_engaged_usd: float = 0.0,
+    signature_type: int | None = None,
+    funder: str | None = None,
+) -> ExecutionResult:
+    """Applique les plafonds, puis signe et envoie — seulement si `armed`.
+
+    `armed` est faux par défaut et ne se déduit de rien. Le mode non armé
+    parcourt exactement le même chemin, plafonds compris, et s'arrête juste
+    avant la signature : c'est ce qui permet de vérifier le comportement du
+    portier sans qu'un dollar puisse partir.
+    """
+    decision: GateDecision = gate(
+        orders, limits=limits, already_engaged_usd=already_engaged_usd
+    )
+
+    if not armed:
+        logger.info(
+            "MOTEUR NON ARMÉ — %d ordre(s) auraient été envoyés, %d refusés par "
+            "les plafonds. Rien n'est parti.",
+            decision.allowed_count,
+            decision.refused_count,
+        )
+        planned = tuple(
+            SentOrder(
+                condition_id=getattr(order, "condition_id", ""),
+                token_id=getattr(order, "token_id", ""),
+                side=getattr(order, "side", ""),
+                price=float(getattr(order, "price", 0.0)),
+                size=float(getattr(order, "size", 0.0)),
+                cost_usd=order_cost_usd(order),
+                order_id=None,
+                accepted=False,
+                detail="non armé",
+            )
+            for order in decision.allowed
+        )
+        return ExecutionResult(armed=False, sent=planned, refused=decision.refused)
+
+    ready, missing = preflight()
+    if not ready:
+        raise ExecutionRefused(
+            "moteur armé mais identifiants incomplets : " + ", ".join(missing)
+        )
+
+    from py_clob_client.clob_types import OrderArgs, OrderType
+
+    client = build_clob_client(signature_type=signature_type, funder=funder)
+
+    sent: list[SentOrder] = []
+    failed: list[tuple[object, str]] = []
+
+    for order in decision.allowed:
+        try:
+            signed = client.create_order(
+                OrderArgs(
+                    token_id=order.token_id,
+                    price=float(order.price),
+                    size=float(order.size),
+                    side=order.side,
+                )
+            )
+            # GTC : l'ordre reste au carnet. C'est le seul type qui marque des
+            # points de récompense — un FOK est exécuté ou annulé sur-le-champ
+            # et n'est jamais présent au moment de l'échantillonnage du score.
+            response = client.post_order(signed, OrderType.GTC)
+        except Exception as exc:  # le client lève des types variés selon l'étage
+            logger.warning("Ordre refusé par le CLOB : %s", _redact(exc))
+            failed.append((order, _redact(exc)))
+            continue
+
+        accepted = bool(response.get("success", False)) if isinstance(response, dict) else False
+        order_id = response.get("orderID") if isinstance(response, dict) else None
+        sent.append(
+            SentOrder(
+                condition_id=getattr(order, "condition_id", ""),
+                token_id=order.token_id,
+                side=order.side,
+                price=float(order.price),
+                size=float(order.size),
+                cost_usd=order_cost_usd(order),
+                order_id=order_id,
+                accepted=accepted,
+                detail="" if accepted else _redact(response),
+            )
+        )
+
+    logger.info(
+        "MOTEUR ARMÉ — %d accepté(s), %d échec(s), %d refusé(s) par les plafonds",
+        sum(1 for o in sent if o.accepted),
+        len(failed),
+        decision.refused_count,
+    )
+    return ExecutionResult(
+        armed=True,
+        sent=tuple(sent),
+        refused=decision.refused,
+        failed=tuple(failed),
+    )

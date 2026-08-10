@@ -1,0 +1,298 @@
+"""Chemin d'ÉCRITURE sur les marchés de prédiction Binance.
+
+DÉSARMÉ PAR DÉFAUT (`armed=False`), comme le moteur Polymarket. Le mode
+désarmé parcourt exactement le MÊME chemin — plafonds compris, devis compris —
+et s'arrête juste avant l'appel qui engage de l'argent. C'est ce qui permet de
+vérifier un plan sans le jouer ; un chemin de répétition distinct du chemin
+réel ne prouverait rien sur le chemin réel.
+
+Le geste d'armer appartient à l'utilisateur, pas à ce fichier.
+
+TROIS PARTICULARITÉS BINANCE, toutes documentées, aucune devinée :
+
+1. **PASSER UN ORDRE SE FAIT EN DEUX TEMPS.** `POST /trade/get-quote` rend un
+   `quoteId` que `POST /trade/place-order-bundle` exige. Ce n'est pas une
+   commodité : sans devis valide, il n'y a pas d'ordre. Un devis a une durée de
+   vie que la doc ne chiffre pas — on ne le met donc pas en cache, et on ne
+   rejoue jamais un devis après une erreur réseau, parce qu'un devis rejoué
+   pourrait être un second ordre.
+
+2. **L'AUTORISATION SAS EST EXIGÉE** sur ordre, annulation, transfert et
+   rachat (`-31003` sinon). Elle s'active dans l'application Binance : aucune
+   ligne de code ne la remplace. On la présente comme un prérequis, pas comme
+   une panne.
+
+3. **L'ANNULATION PORTE LE PIÈGE DES CROCHETS.** `cancelInfoList[0].orderId`
+   est signé sur les octets bruts ; toute bibliothèque qui percent-encode `[`
+   casse la signature (`-1022`). Voir `signing.py` : c'est traité une fois,
+   pour tous les appels.
+
+Ce que ce module NE fait pas, et l'omission est délibérée : il ne choisit
+aucun marché et ne calcule aucune taille. Il exécute un plan qu'on lui donne.
+Un exécutant qui choisit devient une stratégie, et une stratégie cachée dans
+un exécutant n'est mesurable nulle part.
+"""
+
+from __future__ import annotations
+
+import logging
+from dataclasses import dataclass, field
+from typing import Any, Mapping, Sequence
+
+from ..config import BINANCE_MARKET_ORDER_MIN_USDT
+from ..execute.limits import ExecutionLimits, gate
+from .api import BinancePredictionClient
+from .model import BinanceApiError, BinanceSchemaError
+
+logger = logging.getLogger(__name__)
+
+BUY = "BUY"
+SELL = "SELL"
+LIMIT = "LIMIT"
+MARKET = "MARKET"
+
+
+@dataclass(frozen=True)
+class PredictionOrder:
+    """Un ordre à passer.
+
+    Porte `market_id`, `price` et `size` : c'est exactement ce que
+    `execute/limits.gate()` inspecte, donc le portier écrit pour Polymarket
+    s'applique ici sans être dupliqué.
+    """
+
+    market_id: int
+    token_id: str
+    side: str = BUY
+    order_type: str = LIMIT
+    price: float = 0.0
+    size: float = 0.0
+
+    def __post_init__(self) -> None:
+        if self.side not in (BUY, SELL):
+            raise ValueError(f"side {self.side!r} : attendu {BUY} ou {SELL}")
+        if self.order_type not in (LIMIT, MARKET):
+            raise ValueError(
+                f"order_type {self.order_type!r} : attendu {LIMIT} ou {MARKET}"
+            )
+        if self.size <= 0:
+            raise ValueError("size doit être strictement positive")
+        if self.order_type == LIMIT and not 0.0 < self.price < 1.0:
+            raise ValueError(
+                f"price {self.price} hors de (0, 1) — un prix de marché de "
+                "prédiction est une probabilité"
+            )
+
+    @property
+    def notional_usdt(self) -> float:
+        return self.price * self.size
+
+    def market_order_too_small(self) -> bool:
+        """Change-log du 2026-06-16 : un MARKET exige `amountIn` ≳ 1,5 USDT.
+
+        Le seuil « varies by market depth » : on le traite comme un signal, pas
+        comme une frontière exacte. Les LIMIT n'y sont pas soumis.
+        """
+        return (
+            self.order_type == MARKET
+            and self.notional_usdt < BINANCE_MARKET_ORDER_MIN_USDT
+        )
+
+
+@dataclass(frozen=True)
+class Quote:
+    """Le devis rendu par `get-quote`. `quote_id` est la seule pièce obligatoire."""
+
+    quote_id: str
+    price: float | None = None
+    size: float | None = None
+    fee_usdt: float | None = None
+    raw: Mapping[str, Any] = field(default_factory=dict, repr=False, compare=False)
+
+
+def parse_quote(payload: Any) -> Quote:
+    """Extrait le devis, ou lève.
+
+    Un devis sans `quoteId` n'est pas un devis dégradé : c'est une réponse
+    qu'on ne peut pas transformer en ordre. Rendre un `Quote` vide ferait
+    échouer l'ordre plus loin, avec un message qui ne pointerait plus ici.
+    """
+    source: Any = payload
+    if isinstance(payload, Mapping) and "quoteId" not in payload:
+        inner = payload.get("data")
+        if isinstance(inner, Mapping):
+            source = inner
+    if not isinstance(source, Mapping):
+        raise BinanceSchemaError("get-quote : objet attendu")
+
+    quote_id = source.get("quoteId") or source.get("quote_id") or source.get("id")
+    if not isinstance(quote_id, str) or not quote_id.strip():
+        raise BinanceSchemaError(
+            f"get-quote : `quoteId` absent — clés reçues : {sorted(source)[:8]}"
+        )
+
+    def num(*names: str) -> float | None:
+        for name in names:
+            value = source.get(name)
+            if isinstance(value, (int, float, str)) and not isinstance(value, bool):
+                try:
+                    return float(value)
+                except (TypeError, ValueError):
+                    continue
+        return None
+
+    return Quote(
+        quote_id=quote_id.strip(),
+        price=num("price", "avgPrice", "executionPrice"),
+        size=num("size", "quantity", "shares"),
+        fee_usdt=num("fee", "feeAmount", "takerFee"),
+        raw=dict(source),
+    )
+
+
+@dataclass(frozen=True)
+class ExecutionOutcome:
+    """Compte-rendu d'un passage, armé ou non.
+
+    `armed` est conservé dans le résultat exprès : un rapport qui ne dit pas
+    s'il décrit une répétition ou de vrais ordres est un rapport qu'on finit
+    par mal lire.
+    """
+
+    armed: bool
+    placed: tuple[Mapping[str, Any], ...] = ()
+    quotes: tuple[Quote, ...] = ()
+    refused: tuple[tuple[Any, str], ...] = ()
+    failures: tuple[tuple[Any, str], ...] = ()
+
+    @property
+    def summary(self) -> str:
+        head = (
+            "ARMÉ — ordres réellement passés"
+            if self.armed
+            else "DÉSARMÉ — aucun ordre envoyé"
+        )
+        return (
+            f"{head} : {len(self.placed)} passé(s), {len(self.quotes)} devis "
+            f"obtenu(s), {len(self.refused)} refusé(s) par les plafonds, "
+            f"{len(self.failures)} en échec"
+        )
+
+
+class PredictionTrader:
+    """Exécute un plan d'ordres. Rien de plus."""
+
+    def __init__(
+        self,
+        client: BinancePredictionClient,
+        *,
+        limits: ExecutionLimits,
+        armed: bool = False,
+    ) -> None:
+        self.client = client
+        self.limits = limits
+        self.armed = armed
+
+    async def get_quote(self, order: PredictionOrder) -> Quote:
+        """`POST /trade/get-quote`. Appelé même désarmé — c'est une lecture.
+
+        Obtenir le devis en mode désarmé est délibéré : c'est la seule façon
+        de savoir ce que l'ordre coûterait vraiment, frais compris, sans le
+        passer. Le devis n'engage rien tant qu'il n'est pas présenté à
+        `place-order-bundle`.
+        """
+        params: dict[str, Any] = {
+            "marketId": order.market_id,
+            "tokenId": order.token_id,
+            "side": order.side,
+            "orderType": order.order_type,
+            "quantity": order.size,
+        }
+        if order.order_type == LIMIT:
+            params["price"] = order.price
+        payload = await self.client.post(  # type: ignore[attr-defined]
+            "/trade/get-quote", params
+        )
+        return parse_quote(payload)
+
+    async def place(self, order: PredictionOrder, quote: Quote) -> Mapping[str, Any]:
+        """`POST /trade/place-order-bundle`. LE point où l'argent bouge.
+
+        Ne jamais réessayer : une erreur réseau après émission ne dit pas si
+        l'ordre est passé, et un second envoi du même devis risque un doublon.
+        En cas de doute, `active_orders()` tranche — c'est une lecture, elle
+        est sans danger, contrairement à un réessai.
+        """
+        if not self.armed:
+            raise RuntimeError(
+                "place() appelé sur un trader désarmé — c'est un défaut de "
+                "programmation, pas une situation à rattraper"
+            )
+        payload = await self.client.post(  # type: ignore[attr-defined]
+            "/trade/place-order-bundle", {"quoteId": quote.quote_id}
+        )
+        return payload if isinstance(payload, Mapping) else {"raw": payload}
+
+    async def batch_cancel(self, order_ids: Sequence[str]) -> Mapping[str, Any]:
+        """`POST /trade/batch-cancel` — les fameuses clés à crochets.
+
+        Le champ `vendor` par élément a été RETIRÉ de la doc le 2026-06-16 :
+        le serveur le remplit lui-même (`predict_fun`). L'envoyer quand même
+        ajouterait un paramètre inattendu à la chaîne signée.
+        """
+        if not self.armed:
+            raise RuntimeError("batch_cancel() appelé sur un trader désarmé")
+        if not order_ids:
+            return {}
+        params: dict[str, Any] = {}
+        for index, order_id in enumerate(order_ids):
+            params[f"cancelInfoList[{index}].orderId"] = order_id
+        payload = await self.client.post(  # type: ignore[attr-defined]
+            "/trade/batch-cancel", params
+        )
+        return payload if isinstance(payload, Mapping) else {"raw": payload}
+
+    async def run(self, orders: Sequence[PredictionOrder]) -> ExecutionOutcome:
+        """Chemin complet : plafonds, devis, puis ordre si et seulement si armé."""
+        decision = gate(orders, limits=self.limits)
+        allowed = tuple(decision.allowed)
+        refused = tuple(decision.refused)
+
+        # Le minimum de MARKET est vérifié APRÈS les plafonds : un ordre déjà
+        # refusé n'a pas besoin d'un second motif, et empiler les motifs rend
+        # le rapport illisible.
+        quotes: list[Quote] = []
+        placed: list[Mapping[str, Any]] = []
+        failures: list[tuple[Any, str]] = []
+
+        for order in allowed:
+            if order.market_order_too_small():
+                failures.append(
+                    (
+                        order,
+                        f"ordre MARKET de {order.notional_usdt:.2f} USDT sous le "
+                        f"minimum documenté de ~{BINANCE_MARKET_ORDER_MIN_USDT} USDT",
+                    )
+                )
+                continue
+            try:
+                quote = await self.get_quote(order)
+            except (BinanceApiError, BinanceSchemaError) as exc:
+                failures.append((order, f"devis refusé : {exc}"))
+                continue
+            quotes.append(quote)
+
+            if not self.armed:
+                continue
+            try:
+                placed.append(await self.place(order, quote))
+            except (BinanceApiError, BinanceSchemaError) as exc:
+                failures.append((order, f"ordre refusé : {exc}"))
+
+        return ExecutionOutcome(
+            armed=self.armed,
+            placed=tuple(placed),
+            quotes=tuple(quotes),
+            refused=refused,
+            failures=tuple(failures),
+        )
