@@ -15,6 +15,47 @@ Trois choses doivent être vraies, et chacune correspond à un dégât possible 
 
 from __future__ import annotations
 
+from donmarket.web.server import is_local_write_allowed as _write_allowed
+
+PORT = 8787
+
+
+def test_un_site_tiers_ne_peut_pas_declencher_une_ecriture():
+    """Le scénario réel : un onglet quelconque poste vers le loopback.
+
+    La réponse lui serait refusée par la politique d'origine, mais l'action,
+    elle, partirait — c'est le propre du CSRF.
+    """
+    assert not _write_allowed(
+        {"Sec-Fetch-Site": "cross-site", "Origin": "https://site-quelconque.example"},
+        port=PORT,
+    )
+
+
+def test_la_page_locale_est_acceptee():
+    assert _write_allowed(
+        {"Sec-Fetch-Site": "same-origin", "Origin": f"http://127.0.0.1:{PORT}"},
+        port=PORT,
+    )
+
+
+def test_un_autre_service_local_est_refuse():
+    """La boucle locale n'est PAS une origine unique : un autre port est un tiers."""
+    assert not _write_allowed({"Origin": f"http://127.0.0.1:{PORT + 1}"}, port=PORT)
+
+
+def test_curl_sans_en_tete_reste_accepte():
+    """Refuser ici casserait tout script local sans rien protéger de plus."""
+    assert _write_allowed({}, port=PORT)
+
+
+def test_un_origin_falsifie_vers_un_autre_hote_est_refuse():
+    assert not _write_allowed({"Origin": "http://evil.example"}, port=PORT)
+
+
+def test_sec_fetch_site_prime_meme_sans_origin():
+    assert not _write_allowed({"Sec-Fetch-Site": "same-site"}, port=PORT)
+
 import json
 
 from donmarket.analysis.opportunities import Mode

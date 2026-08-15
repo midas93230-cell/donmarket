@@ -27,7 +27,8 @@ import threading
 from dataclasses import dataclass
 from http.server import BaseHTTPRequestHandler, ThreadingHTTPServer
 from pathlib import Path
-from typing import Callable
+from typing import Callable, Mapping
+from urllib.parse import urlsplit
 
 from ..analysis.opportunities import Mode
 from ..execute.credentials import connection_status
@@ -92,6 +93,44 @@ def state_payload(state: ScanState, monitor: LiveMonitor | None = None) -> dict:
             scan_payload(snapshot.result, live=live) if snapshot.result else None
         ),
     }
+
+
+# Écouter sur le loopback ne veut pas dire être à l'abri du web. N'importe quel
+# site ouvert dans le MÊME navigateur peut poster vers 127.0.0.1 : la réponse lui
+# est refusée, mais l'ACTION part quand même (requête « simple », sans préflight).
+# Aujourd'hui le pire est un balayage déclenché à distance ; le jour où un POST
+# posera un ordre, ce serait la même faille et un autre prix.
+#
+# Un navigateur moderne envoie `Sec-Fetch-Site` partout et `Origin` sur toute
+# écriture. Un client hors navigateur (curl, script local) n'envoie ni l'un ni
+# l'autre — et n'est pas le vecteur qu'on craint : personne n'a besoin de piéger
+# un utilisateur pour lancer curl sur sa propre machine.
+ALLOWED_FETCH_SITES = frozenset({"same-origin", "none"})
+LOOPBACK_HOSTS = frozenset({"127.0.0.1", "localhost", "::1"})
+
+
+def is_local_write_allowed(headers: Mapping[str, str], *, port: int) -> bool:
+    """Vrai si cette écriture peut venir de la page locale, et pas d'un site tiers.
+
+    Deux signaux, l'absence des deux valant acceptation. Refuser faute d'en-tête
+    casserait tout client non navigateur sans rien protéger de plus : qui
+    contrôle déjà un processus local n'a pas besoin de CSRF.
+    """
+    site = (headers.get("Sec-Fetch-Site") or "").strip().lower()
+    if site and site not in ALLOWED_FETCH_SITES:
+        return False
+
+    origin = (headers.get("Origin") or "").strip()
+    if origin:
+        parsed = urlsplit(origin)
+        if (parsed.hostname or "").lower() not in LOOPBACK_HOSTS:
+            return False
+        # `Origin: http://127.0.0.1:AUTRE_PORT` vient d'un autre service local,
+        # pas de notre page : la boucle locale n'est pas une seule origine.
+        if parsed.port is not None and parsed.port != port:
+            return False
+
+    return True
 
 
 def handle_request(
@@ -237,6 +276,19 @@ def _make_handler(
             )
 
         def do_POST(self) -> None:  # noqa: N802
+            if not is_local_write_allowed(
+                self.headers, port=self.server.server_address[1]
+            ):
+                logger.warning(
+                    "Écriture refusée : origine %r, Sec-Fetch-Site %r",
+                    self.headers.get("Origin"),
+                    self.headers.get("Sec-Fetch-Site"),
+                )
+                self._respond(
+                    _json({"error": "origine externe refusée"}, status=403)
+                )
+                return
+
             length = int(self.headers.get("Content-Length") or 0)
             body = self.rfile.read(length) if length else b""
             amount = parse_bankroll(body, default=runner.default_bankroll)

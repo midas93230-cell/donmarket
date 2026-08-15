@@ -8,6 +8,57 @@ verrous ne sont pas levés, et qu'aucun secret ne ressorte.
 
 from __future__ import annotations
 
+import pytest as _pytest
+
+from donmarket.execute.engine import _redact
+
+
+@_pytest.fixture
+def secrets_configures(monkeypatch):
+    """Configure de faux secrets, comme le ferait un `.env` rempli."""
+    monkeypatch.setenv("POLYMARKET_PRIVATE_KEY", "0x" + "ab" * 32)
+    monkeypatch.setenv("POLYMARKET_API_SECRET", "secret-api-tres-long-1234")
+    monkeypatch.setenv("POLYMARKET_BUILDER_API_SECRET", "secret-builder-abcdef-99")
+    return monkeypatch
+
+
+def test_le_secret_est_retire_meme_en_tete_du_message(secrets_configures):
+    """Le défaut corrigé : tronquer d'abord gardait justement le secret.
+
+    Une exception de requête signée commence par l'URL et les en-têtes, donc
+    les 200 premiers caractères conservés étaient les pires.
+    """
+    nettoye = _redact("POST /order secret-api-tres-long-1234 " + "x" * 400)
+    assert "secret-api-tres-long-1234" not in nettoye
+    assert "***" in nettoye
+
+
+def test_la_cle_privee_est_retiree_avec_ou_sans_prefixe(secrets_configures):
+    nue = "ab" * 32
+    assert nue not in _redact(f"signing failed with key {nue}")
+    assert nue not in _redact(f"signing failed with key 0x{nue}")
+
+
+def test_le_secret_builder_est_retire_lui_aussi(secrets_configures):
+    assert "secret-builder-abcdef-99" not in _redact(
+        "builder header rejected: secret-builder-abcdef-99"
+    )
+
+
+def test_un_en_tete_reconstruit_est_filtre_meme_sans_variable(monkeypatch):
+    """Filet à motifs : la valeur peut fuir sans venir de l'environnement."""
+    for name in ("POLYMARKET_PRIVATE_KEY", "POLYMARKET_API_SECRET"):
+        monkeypatch.delenv(name, raising=False)
+    nettoye = _redact("headers={'POLY_API_KEY': 'AbCdEf0123456789xyz'}")
+    assert "AbCdEf0123456789xyz" not in nettoye
+
+
+def test_le_message_reste_diagnostiquable(secrets_configures):
+    """Un journal illisible pousse à désactiver la protection. Équilibre tenu."""
+    nettoye = _redact("400 Bad Request: insufficient balance for market 0xdeadbeef")
+    assert "insufficient balance" in nettoye
+    assert "0xdeadbeef" in nettoye  # un id de marché n'est pas un secret
+
 from dataclasses import dataclass
 
 import pytest

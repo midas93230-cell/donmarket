@@ -33,6 +33,7 @@ from __future__ import annotations
 
 import logging
 import os
+import re
 from dataclasses import dataclass
 from typing import Sequence
 
@@ -155,13 +156,51 @@ class ExecutionResult:
         return not self.armed
 
 
-def _redact(message: object, limit: int = 200) -> str:
-    """Tronque un message d'erreur avant journalisation.
+# En-têtes d'authentification du CLOB : leur VALEUR ne doit jamais atteindre un
+# journal, quel que soit le chemin par lequel elle y arrive.
+_AUTH_HEADER_PATTERN = re.compile(
+    r"(POLY[_-](?:API[_-]KEY|PASSPHRASE|SIGNATURE|NONCE)['\"?:=\s]+)([A-Za-z0-9+/=_-]{8,})",
+    re.IGNORECASE,
+)
 
-    Une exception de requête signée peut porter les en-têtes d'authentification
-    dans sa représentation. On garde de quoi diagnostiquer, pas de quoi rejouer.
+# Les variables dont la valeur est un secret. Le code builder n'en est PAS un
+# (il figure dans chaque ligne publique de /builder/trades) : le retirer ne
+# ferait que rendre les erreurs d'attribution indéchiffrables.
+_SECRET_VARS = (
+    PRIVATE_KEY_VAR,
+    *API_VARS,
+    "POLYMARKET_BUILDER_API_KEY",
+    "POLYMARKET_BUILDER_API_SECRET",
+    "POLYMARKET_BUILDER_API_PASSPHRASE",
+)
+
+
+def _redact(message: object, limit: int = 200) -> str:
+    """Retire les secrets d'un message d'erreur, PUIS le tronque.
+
+    Tronquer ne suffisait pas, et c'était le défaut de la version précédente :
+    la représentation d'une exception de requête signée commence souvent par
+    l'URL et les en-têtes, donc les 200 premiers caractères conservés étaient
+    précisément ceux qu'il fallait retirer. On substitue d'abord, on coupe
+    ensuite — l'ordre inverse ne protège rien.
+
+    Deux passes, comme `binance.signing.redact` : d'abord les valeurs réellement
+    configurées (substitution exacte, la seule sûre), puis un filet à motifs
+    pour ce qui aurait fuité par un chemin inattendu — un en-tête reconstruit,
+    une réponse d'API qui renvoie la clé.
     """
     text = str(message).replace("\n", " ")
+
+    for name in _SECRET_VARS:
+        value = (os.getenv(name) or "").strip()
+        # Sous 8 caractères, une substitution ferait plus de dégâts qu'elle
+        # n'en éviterait : elle mutilerait des fragments de message anodins.
+        if len(value) >= 8:
+            text = text.replace(value, "***")
+            if value.startswith("0x"):
+                text = text.replace(value[2:], "***")
+
+    text = _AUTH_HEADER_PATTERN.sub(r"\1***", text)
     return text[:limit] + ("…" if len(text) > limit else "")
 
 
@@ -187,7 +226,14 @@ def build_clob_client(*, signature_type: int | None = None, funder: str | None =
     from py_clob_client.client import ClobClient
     from py_clob_client.clob_types import ApiCreds
 
-    private_key = os.getenv(PRIVATE_KEY_VAR)
+    # `read_secret` et non `os.getenv` : une valeur scellée par DPAPI
+    # (`dpapi:v1:…`) doit être descellée AVANT d'atteindre le signataire. La
+    # passer telle quelle produirait une clé privée invalide, donc une adresse
+    # dérivée fausse, donc un rejet pour « solde insuffisant » sur un compte
+    # vide — un symptôme situé très loin de sa cause.
+    from ..store.vault import read_secret
+
+    private_key = read_secret(PRIVATE_KEY_VAR)
     if not private_key:
         raise ExecutionRefused(f"{PRIVATE_KEY_VAR} absente : aucune signature possible")
 
@@ -204,9 +250,9 @@ def build_clob_client(*, signature_type: int | None = None, funder: str | None =
         funder=resolved_funder,
     )
 
-    key = os.getenv("POLYMARKET_API_KEY")
-    secret = os.getenv("POLYMARKET_API_SECRET")
-    passphrase = os.getenv("POLYMARKET_API_PASSPHRASE")
+    key = read_secret("POLYMARKET_API_KEY")
+    secret = read_secret("POLYMARKET_API_SECRET")
+    passphrase = read_secret("POLYMARKET_API_PASSPHRASE")
     if key and secret and passphrase:
         client.set_api_creds(ApiCreds(key, secret, passphrase))
     else:
