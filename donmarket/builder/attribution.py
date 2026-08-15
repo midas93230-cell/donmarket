@@ -1,0 +1,162 @@
+"""Brancher l'attribution sur les ordres — deux choses distinctes, souvent confondues.
+
+Pour encaisser des frais builder il faut DEUX éléments qui n'ont ni la même
+forme, ni le même rôle, et les confondre coûte des mois de volume non attribué :
+
+**Le code builder** (`0x` + 64 hexadécimaux) est un IDENTIFIANT DE LECTURE. Il
+sert à interroger `/builder/trades` pour savoir ce qui vous a été attribué. Le
+poser dans une requête n'attribue rien du tout.
+
+**Les identifiants d'API builder** (`key` / `secret` / `passphrase`) sont ce qui
+ATTRIBUE réellement : `py_builder_signing_sdk` les utilise pour signer des
+en-têtes builder, et c'est cette signature que le CLOB reconnaît au moment où
+l'ordre est apparié. Sans eux, un ordre part sans attribution et les frais sont
+perdus définitivement — l'attribution se joue à la signature, jamais après.
+
+Les deux se récupèrent sur `polymarket.com → Settings → Builders`, sur un compte
+connecté.
+
+## Ce qui ne suffit PAS, même avec les deux
+
+Le palier par défaut est **Unverified** : 100 transactions de relayer par jour
+et **aucune monétisation**. Facturer le moindre point de base exige le palier
+**Verified**, obtenu par approbation manuelle (courriel à builder@polymarket.com
+avec la clé d'API, le cas d'usage et le volume attendu). Ce module dit donc
+« prêt à attribuer », jamais « prêt à encaisser » : la seconde affirmation
+dépend d'une décision humaine chez Polymarket, que le code ne peut pas lire.
+"""
+
+from __future__ import annotations
+
+import os
+from dataclasses import dataclass
+from typing import Any
+
+from .codes import BuilderCode, InvalidBuilderCode
+
+CODE_VAR = "POLYMARKET_BUILDER_CODE"
+API_VARS = (
+    "POLYMARKET_BUILDER_API_KEY",
+    "POLYMARKET_BUILDER_API_SECRET",
+    "POLYMARKET_BUILDER_API_PASSPHRASE",
+)
+
+
+class AttributionNotConfigured(RuntimeError):
+    """L'attribution a été demandée sans les éléments pour l'assurer."""
+
+
+def _present(name: str) -> bool:
+    value = os.getenv(name)
+    return bool(value and value.strip())
+
+
+@dataclass(frozen=True)
+class BuilderAttribution:
+    """Ce qu'on sait de l'attribution — jamais un secret, seulement sa présence.
+
+    Le code est porté en clair parce qu'il n'en est pas un : il figure dans
+    chaque ligne publique de `/builder/trades`. Les identifiants d'API, eux,
+    ne sortent jamais d'ici.
+    """
+
+    code: BuilderCode | None
+    has_api_credentials: bool
+    code_error: str | None = None
+
+    @property
+    def can_attribute(self) -> bool:
+        """Vrai seulement si un ordre signé maintenant serait attribué.
+
+        Le code seul ne suffit pas : c'est la signature des en-têtes qui
+        attribue. Un « can_attribute » qui se contenterait du code laisserait
+        croire que le volume rentre alors qu'il ne va chez personne.
+        """
+        return self.has_api_credentials
+
+    @property
+    def can_read_attribution(self) -> bool:
+        """Vrai si on peut au moins LIRE ce qui a été attribué."""
+        return self.code is not None
+
+    @property
+    def missing(self) -> tuple[str, ...]:
+        absent: list[str] = []
+        if self.code is None:
+            absent.append(CODE_VAR)
+        absent.extend(name for name in API_VARS if not _present(name))
+        return tuple(absent)
+
+
+def load_attribution() -> BuilderAttribution:
+    """Lit l'environnement. `config.py` a déjà chargé le `.env` local.
+
+    Un code MALFORMÉ n'est pas traité comme un code absent : il est retenu dans
+    `code_error`. La distinction compte — un code absent est un réglage à
+    faire, un code malformé est une faute de frappe qui produirait des pages
+    vides silencieuses et un compte à zéro qu'on croirait vrai.
+    """
+    raw = os.getenv(CODE_VAR)
+    code: BuilderCode | None = None
+    error: str | None = None
+    if raw and raw.strip():
+        try:
+            code = BuilderCode(raw)
+        except InvalidBuilderCode as exc:
+            error = str(exc)
+
+    return BuilderAttribution(
+        code=code,
+        has_api_credentials=all(_present(name) for name in API_VARS),
+        code_error=error,
+    )
+
+
+def build_builder_config() -> Any:
+    """Construit le `BuilderConfig` de `py-clob-client`, ou explique le refus.
+
+    Import PARESSEUX, comme `build_clob_client` : le reste de DONmarket ne doit
+    pas payer les secondes de chargement du SDK de signature pour afficher un
+    classement en lecture seule.
+    """
+    attribution = load_attribution()
+    if not attribution.has_api_credentials:
+        manquants = ", ".join(n for n in API_VARS if not _present(n))
+        raise AttributionNotConfigured(
+            f"identifiants d'API builder absents : {manquants}. "
+            "Ils se récupèrent sur polymarket.com → Settings → Builders, sur un "
+            "compte connecté. Sans eux un ordre part SANS attribution et les "
+            "frais sont perdus définitivement."
+        )
+
+    from py_builder_signing_sdk.config import BuilderConfig
+    from py_builder_signing_sdk.sdk_types import BuilderApiKeyCreds
+
+    from ..store.vault import read_secret
+
+    # `read_secret` et non `os.environ` : une valeur scellée par DPAPI
+    # (`dpapi:v1:…`) doit être descellée ici. La passer telle quelle donnerait
+    # un rejet d'authentification très loin de sa cause.
+    return BuilderConfig(
+        local_builder_creds=BuilderApiKeyCreds(
+            key=read_secret(API_VARS[0]),
+            secret=read_secret(API_VARS[1]),
+            passphrase=read_secret(API_VARS[2]),
+        )
+    )
+
+
+def attribution_status() -> dict[str, object]:
+    """L'état d'attribution tel qu'un rapport l'affiche. Aucun secret dedans."""
+    attribution = load_attribution()
+    return {
+        "code": attribution.code.short if attribution.code else None,
+        "code_error": attribution.code_error,
+        "can_read_attribution": attribution.can_read_attribution,
+        "can_attribute": attribution.can_attribute,
+        "missing": list(attribution.missing),
+        # Le palier Verified ne se lit nulle part dans l'API : il dépend d'une
+        # approbation humaine. On ne prétend donc JAMAIS savoir si les frais
+        # seront réellement perçus.
+        "tier_is_unknown": True,
+    }

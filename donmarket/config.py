@@ -30,6 +30,35 @@ GAMMA_MAX_OFFSET = 2100
 # de tokens : le CLOB expose un endpoint groupé acceptant plusieurs token_id.
 BOOKS_BATCH_SIZE = 100
 
+# --- Programme Builders (frais sur le volume routé) ----------------------
+# Les statistiques builder ne vivent PAS sur gamma ni sur le CLOB mais sur une
+# troisième base publique, sans clé (MESURÉ le 2026-08-15).
+DATA_API_BASE = "https://data-api.polymarket.com"
+
+# MESURÉ : `/builder/trades` sert 300 lignes par page et IGNORE `limit`
+# (limit=5 → 300 servies, limit=1000 → 300 servies).
+BUILDER_PAGE_SIZE = 300
+
+# MESURÉ : contrairement à Gamma et à Predict.fun, le curseur AVANCE ici. Il
+# encode l'offset en base64 (« MzAw » = 300, « NjAw » = 600) et la fin de flux
+# est signalée par base64 de « -1 ». Une boucle qui ne connaît pas ce sentinelle
+# repart de l'offset -1 et repagine indéfiniment.
+BUILDER_CURSOR_END = "LTE="
+
+# Garde-fou d'aspiration : MESURÉ le 2026-08-15, même les plus petits builders
+# du top 50 dépassent 12 000 exécutions. Aspirer un builder entier n'est pas un
+# geste anodin, d'où un plafond explicite que l'appelant doit lever sciemment.
+BUILDER_MAX_PAGES = 40
+
+# Maxima PUBLIÉS sur docs.polymarket.com/programs/builders/fees.
+# MESURÉ le 2026-08-15 : ce ne sont PAS des plafonds durs. MetaMask facture
+# 400,00 bps côté preneur (étalement du taux implicite : 0,000 sur 261 lignes),
+# soit 4× le maximum annoncé. Ces constantes servent donc à SIGNALER un
+# dépassement, jamais à rejeter une mesure au motif qu'elle les excède.
+BUILDER_PUBLISHED_MAX_TAKER_BPS = 100
+BUILDER_PUBLISHED_MAX_MAKER_BPS = 50
+
+
 # --- Predict.fun (la « Prédiction » de Binance Wallet) -------------------
 # Place de marché distincte, sur BNB Chain. Aucun réglage Polymarket ne s'y
 # applique. Voir donmarket/predictfun/ pour ce qui a été mesuré.

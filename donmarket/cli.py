@@ -768,6 +768,153 @@ async def _run_predictfun(args: argparse.Namespace) -> int:
     return 0
 
 
+def _run_seal(args: argparse.Namespace) -> int:
+    """Scelle un secret avec DPAPI pour le coller dans le `.env`.
+
+    La valeur est demandée par saisie MASQUÉE, jamais passée en argument : la
+    ligne de commande d'un processus est lisible par tout le système, et reste
+    dans l'historique du terminal.
+    """
+    import getpass
+
+    from .store.vault import VaultError, is_available, seal
+
+    if not is_available():
+        print("Le scellement DPAPI n'existe que sous Windows.")
+        print("Ailleurs : garder le .env en clair et restreindre ses permissions.")
+        return 1
+
+    print("Scellement DPAPI (portée : ton compte Windows, sur cette machine).")
+    print("Ce que ça protège : un .env copié ailleurs devient inerte.")
+    print("Ce que ça ne protège PAS : un programme lancé sous ton propre compte.")
+    print()
+
+    valeur = getpass.getpass("Valeur à sceller (saisie masquée) : ").strip()
+    if not valeur:
+        print("Rien saisi — abandon.")
+        return 1
+
+    try:
+        scelle = seal(valeur)
+    except VaultError as exc:
+        print(f"Échec : {exc}")
+        return 1
+
+    print("\nColler cette ligne dans .env (la valeur en clair n'y apparaît plus) :\n")
+    print(f"{args.variable}={scelle}")
+    return 0
+
+
+async def _run_builder(args: argparse.Namespace) -> int:
+    """Programme Builders — qui route du volume, et qui en vit réellement.
+
+    Le classement officiel trie par VOLUME. Ce rapport le retrie par REVENU,
+    parce que les deux n'ont presque rien à voir : au 2026-08-15 le premier au
+    volume ne prélevait rien du tout. Le taux n'est jamais supposé — il est
+    mesuré sur les exécutions attribuées, côté preneur et côté teneur.
+    """
+    from .builder.api import (
+        build_clob_client,
+        build_data_client,
+        fetch_builder_trades,
+        fetch_leaderboard,
+    )
+    from .builder.revenue import build_estimate, rank_by_revenue, volume_needed_for
+
+    period = args.period.upper()
+
+    async with build_data_client() as data_client:
+        entries = await fetch_leaderboard(data_client, period=period, limit=50)
+
+    usable = [e for e in entries if e.has_usable_code][: args.top]
+    if not usable:
+        print("Aucun builder avec un code exploitable dans le classement.")
+        return 1
+
+    semaphore = asyncio.Semaphore(SETTINGS.max_concurrency)
+
+    async with build_clob_client() as clob_client:
+
+        async def sample_for(entry):
+            async with semaphore:
+                return await fetch_builder_trades(
+                    clob_client, entry.code, max_pages=args.pages
+                )
+
+        samples = await asyncio.gather(*(sample_for(e) for e in usable))
+
+    estimates = [
+        build_estimate(entry, sample, period=period)
+        for entry, sample in zip(usable, samples)
+    ]
+    classement = rank_by_revenue(estimates)
+
+    # Les réserves AVANT les chiffres : un lecteur qui ne lit que le tableau
+    # doit avoir déjà croisé ce qui le rend incertain.
+    print(f"\n=== Builders Polymarket — période {period}, {len(usable)} builders")
+    print("\nCe que ces chiffres ne sont PAS :")
+    print("  · le revenu est ESTIMÉ (volume publié × taux mesuré), pas relevé ;")
+    print("  · l'unité du volume publié n'a pas pu être vérifiée (dollars ou parts) ;")
+    print(f"  · le taux vient d'un échantillon de {args.pages} page(s) au plus, soit "
+          f"{args.pages * 300} exécutions ;")
+    print("  · c'est le plus haut taux jamais observé, l'endpoint ne date pas les époques.")
+
+    print(
+        f"\n{'builder':22} {'utilis.':>8} {'volume':>15} {'preneur':>9} {'teneur':>8} "
+        f"{'effectif':>9} {'revenu est.':>13} {'/utilis.':>9}"
+    )
+    print("-" * 100)
+    for est in classement:
+        taker = est.schedule.taker
+        maker = est.schedule.maker
+        revenue = est.estimated_period_revenue_usd
+        per_user = est.revenue_per_user_usd
+        blended = est.blended_bps
+        print(
+            f"{est.builder[:22]:22} {est.active_users:>8,} {est.volume:>15,.0f} "
+            f"{('—' if taker is None else f'{taker.bps:.0f}bps'):>9} "
+            f"{('—' if maker is None else f'{maker.bps:.0f}bps'):>8} "
+            f"{('—' if blended is None else f'{blended:.1f}bps'):>9} "
+            f"{('inconnu' if revenue is None else f'{revenue:,.0f}$'):>13} "
+            f"{('—' if per_user is None else f'{per_user:,.0f}$'):>9}"
+        )
+
+    gratuits = [e for e in classement if e.schedule.charges_nothing]
+    if gratuits:
+        noms = ", ".join(e.builder for e in gratuits[:6])
+        print(
+            f"\n{len(gratuits)} builder(s) sur {len(classement)} ne prélèvent RIEN : {noms}."
+        )
+        print("  Le volume n'est donc pas le revenu, et le classement officiel ne le dit pas.")
+
+    hors_plafond = [e for e in classement if e.schedule.exceeds_published_cap]
+    if hors_plafond:
+        for e in hors_plafond:
+            taux = e.schedule.taker.bps if e.schedule.taker else 0.0
+            print(
+                f"\n{e.builder} facture {taux:.0f} bps côté preneur — le maximum PUBLIÉ "
+                "est de 100 bps. Le plafond documenté n'est pas appliqué."
+            )
+
+    if args.target:
+        print(f"\n=== Volume à router pour encaisser {args.target:,.2f} $/jour")
+        print("  (arithmétique pure, aucune donnée de marché — moitié preneur / moitié teneur)")
+        for taker_bps, maker_bps, etiquette in (
+            (10.0, 5.0, "barème doux (traderline)"),
+            (50.0, 25.0, "barème médian (polymtrade)"),
+            (100.0, 50.0, "barème plafond (Bullpen, Polycule)"),
+        ):
+            besoin = volume_needed_for(
+                args.target, taker_bps=taker_bps, maker_bps=maker_bps, taker_share=0.5
+            )
+            print(
+                f"  {etiquette:34} {taker_bps:>3.0f}/{maker_bps:<3.0f} bps → "
+                f"{besoin:>14,.0f} $ de volume par jour"
+            )
+
+    return 0
+
+
 async def _run_binance(args: argparse.Namespace) -> int:
     """Marchés de prédiction Binance — état d'accès, puis lecture.
 
@@ -1135,6 +1282,43 @@ def build_parser() -> argparse.ArgumentParser:
         help="marchés demandés par page (défaut 20)",
     )
     binance.set_defaults(handler=lambda args: asyncio.run(_run_binance(args)))
+
+    builder = subparsers.add_parser(
+        "builder",
+        help="programme Builders : qui route du volume, et qui en vit vraiment",
+    )
+    builder.add_argument(
+        "--period",
+        choices=["DAY", "WEEK", "MONTH", "ALL", "day", "week", "month", "all"],
+        default="WEEK",
+        help="période du classement (défaut WEEK)",
+    )
+    builder.add_argument(
+        "--top", type=int, default=12, help="builders examinés (défaut 12)"
+    )
+    builder.add_argument(
+        "--pages",
+        type=int,
+        default=2,
+        help="pages d'exécutions échantillonnées par builder, 300 lignes chacune (défaut 2)",
+    )
+    builder.add_argument(
+        "--target",
+        type=float,
+        default=None,
+        help="revenu visé en $/jour : affiche le volume à router pour l'atteindre",
+    )
+    builder.set_defaults(handler=lambda args: asyncio.run(_run_builder(args)))
+
+    seal_cmd = subparsers.add_parser(
+        "seal",
+        help="sceller un secret avec DPAPI avant de le coller dans .env (Windows)",
+    )
+    seal_cmd.add_argument(
+        "variable",
+        help="nom de la variable, ex. POLYMARKET_PRIVATE_KEY (la VALEUR est demandée en saisie masquée)",
+    )
+    seal_cmd.set_defaults(handler=_run_seal)
 
     stats = subparsers.add_parser("stats", help="état de la base locale")
     stats.set_defaults(handler=_run_stats)
