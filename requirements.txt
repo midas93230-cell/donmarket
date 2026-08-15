@@ -1,0 +1,43 @@
+# Dépendances DIRECTES de DONmarket, épinglées aux versions réellement
+# installées et sur lesquelles les 449 tests passent (2026-08-15).
+#
+# Pourquoi épingler, alors que le projet a longtemps vécu sans manifeste : ce
+# code signe des transactions financières. Une résolution de version qui change
+# en silence entre deux `pip install` peut modifier la façon dont un ordre est
+# signé — et le symptôme serait un rejet obscur, ou pire, un ordre accepté que
+# personne n'a voulu.
+#
+# Installation reproductible (versions transitives comprises) :
+#     pip install -r requirements.lock.txt
+#
+# Installation ordinaire (laisse pip résoudre les dépendances indirectes) :
+#     pip install -r requirements.txt
+
+# ── Réseau ───────────────────────────────────────────────────────────────────
+# httpx sert tous les clients d'API. Sa gestion des chemins bruts (`raw_path`)
+# est ce qui permet à donmarket/binance/signing.py de ne PAS voir ses crochets
+# percent-encodés — un réencodage casserait la signature. Ne pas remplacer par
+# `requests` sans relire ce module.
+httpx==0.28.1
+websockets==16.1.1
+
+# ── Configuration ────────────────────────────────────────────────────────────
+python-dotenv==1.2.2
+
+# ── Signature Polymarket ─────────────────────────────────────────────────────
+# Tire eth-account et sa chaîne cryptographique. Assumé : une signature EIP-712
+# écrite à la main qui passe les tests et se trompe en production se paie en
+# dollars.
+#
+# ⚠️ AUDIT 2026-08-15 : ce paquet tire `py_builder_signing_sdk` en version
+# **0.0.2**, qui signe les en-têtes d'attribution builder. Du code très jeune
+# sur un chemin d'authentification. Ce n'est pas une vulnérabilité connue, c'est
+# une exposition de chaîne d'approvisionnement assumée sciemment — et la raison
+# pour laquelle il est épinglé ici plutôt que laissé flottant.
+py_clob_client==0.34.6
+
+# ── Tests ────────────────────────────────────────────────────────────────────
+# Pas de pytest-asyncio : les tests asynchrones passent par `asyncio.run()`
+# dans un test synchrone. Une dépendance de moins sur un chemin qui n'en a pas
+# besoin.
+pytest==9.1.1
