@@ -1,0 +1,315 @@
+<title>Builders Radar</title>
+<style>
+  :root{
+    --ground:#F4F6F9; --surface:#FFFFFF; --surface-2:#EAEFF5;
+    --ink:#111820; --ink-2:#485664; --ink-3:#7A8794;
+    --rule:#D8E0E8; --rule-strong:#B9C5D1;
+    --brass:#8A5E10; --brass-fill:#EEE1C2;
+    --teal:#245F5F; --teal-fill:#D5E6E4;
+    --alarm:#A5362B; --alarm-fill:#F6DED9;
+    --shadow:0 1px 2px rgba(17,24,32,.06),0 8px 24px -16px rgba(17,24,32,.28);
+    --display:Georgia,'Iowan Old Style','Times New Roman',serif;
+    --body:system-ui,-apple-system,'Segoe UI',Roboto,sans-serif;
+    --data:ui-monospace,SFMono-Regular,'SF Mono',Consolas,'Liberation Mono',monospace;
+  }
+  @media (prefers-color-scheme:dark){
+    :root:not([data-theme="light"]){
+      --ground:#0E1319; --surface:#161D25; --surface-2:#1E262F;
+      --ink:#E9EEF3; --ink-2:#A5B1BE; --ink-3:#6D7B89;
+      --rule:#28313B; --rule-strong:#3A4652;
+      --brass:#E3B155; --brass-fill:#3B2F14;
+      --teal:#63B2AE; --teal-fill:#123130;
+      --alarm:#E27F70; --alarm-fill:#3C201C;
+      --shadow:0 1px 2px rgba(0,0,0,.4),0 8px 24px -16px rgba(0,0,0,.8);
+    }
+  }
+  :root[data-theme="dark"]{
+    --ground:#0E1319; --surface:#161D25; --surface-2:#1E262F;
+    --ink:#E9EEF3; --ink-2:#A5B1BE; --ink-3:#6D7B89;
+    --rule:#28313B; --rule-strong:#3A4652;
+    --brass:#E3B155; --brass-fill:#3B2F14;
+    --teal:#63B2AE; --teal-fill:#123130;
+    --alarm:#E27F70; --alarm-fill:#3C201C;
+    --shadow:0 1px 2px rgba(0,0,0,.4),0 8px 24px -16px rgba(0,0,0,.8);
+  }
+
+  *{box-sizing:border-box}
+  body{
+    margin:0; background:var(--ground); color:var(--ink);
+    font-family:var(--body); font-size:16px; line-height:1.6;
+    -webkit-font-smoothing:antialiased;
+  }
+  .wrap{max-width:1080px; margin:0 auto; padding:clamp(24px,5vw,64px) clamp(16px,4vw,40px) 80px}
+  .stack{display:flex; flex-direction:column}
+
+  /* ---- masthead ---- */
+  .masthead{gap:18px; padding-bottom:28px; border-bottom:2px solid var(--ink)}
+  .eyebrow{
+    font-family:var(--data); font-size:11px; letter-spacing:.16em;
+    text-transform:uppercase; color:var(--brass); margin:0;
+  }
+  h1{
+    font-family:var(--display); font-weight:400; letter-spacing:-.02em;
+    font-size:clamp(2.6rem,7vw,4.4rem); line-height:1.02; margin:0;
+    text-wrap:balance;
+  }
+  .dek{
+    font-family:var(--display); font-size:clamp(1.05rem,2.3vw,1.3rem);
+    line-height:1.5; color:var(--ink-2); margin:0; max-width:62ch;
+  }
+  .byline{
+    display:flex; flex-wrap:wrap; gap:8px 20px; font-family:var(--data);
+    font-size:11.5px; letter-spacing:.06em; color:var(--ink-3);
+    text-transform:uppercase; margin:0;
+  }
+
+  /* ---- thesis tiles ---- */
+  .thesis{
+    display:grid; grid-template-columns:repeat(auto-fit,minmax(230px,1fr));
+    gap:1px; background:var(--rule); border:1px solid var(--rule);
+    margin:36px 0 0;
+  }
+  .tile{background:var(--surface); padding:22px 20px 20px; display:flex; flex-direction:column; gap:8px}
+  .tile .n{
+    font-family:var(--data); font-variant-numeric:tabular-nums;
+    font-size:clamp(2rem,4.6vw,2.7rem); line-height:1; letter-spacing:-.03em;
+    color:var(--brass); font-weight:600;
+  }
+  .tile .n small{font-size:.44em; letter-spacing:.02em; color:var(--ink-3); font-weight:500}
+  .tile p{margin:0; font-size:14px; line-height:1.5; color:var(--ink-2)}
+  .tile .lab{
+    font-family:var(--data); font-size:10.5px; letter-spacing:.14em;
+    text-transform:uppercase; color:var(--ink-3);
+  }
+
+  /* ---- sections ---- */
+  section{margin-top:56px}
+  h2{
+    font-family:var(--display); font-weight:400; font-size:clamp(1.6rem,3.4vw,2.1rem);
+    letter-spacing:-.015em; margin:0 0 6px; text-wrap:balance;
+  }
+  .sub{margin:0 0 22px; color:var(--ink-2); font-size:15px; max-width:68ch}
+  p{max-width:68ch}
+
+  /* ---- table ---- */
+  .scroller{overflow-x:auto; border:1px solid var(--rule); background:var(--surface); box-shadow:var(--shadow)}
+  table{border-collapse:collapse; width:100%; min-width:840px; font-size:14px}
+  thead th{
+    font-family:var(--data); font-size:10.5px; letter-spacing:.12em; text-transform:uppercase;
+    color:var(--ink-3); font-weight:600; text-align:right; padding:14px 14px 11px;
+    border-bottom:1px solid var(--rule-strong); white-space:nowrap; background:var(--surface-2);
+  }
+  thead th:first-child,thead th.l{text-align:left}
+  tbody td{
+    padding:12px 14px; border-bottom:1px solid var(--rule); text-align:right;
+    font-family:var(--data); font-variant-numeric:tabular-nums; white-space:nowrap;
+  }
+  tbody td.l{text-align:left; font-family:var(--body)}
+  tbody tr:last-child td{border-bottom:none}
+  tbody tr:hover td{background:var(--surface-2)}
+  .name{font-weight:600; letter-spacing:-.005em}
+  .rk{font-family:var(--data); color:var(--ink-3); font-size:12px; width:2.5em; display:inline-block}
+  .rev{color:var(--brass); font-weight:600}
+  .zero{color:var(--ink-3)}
+  .bar{height:4px; background:var(--brass); display:block; margin-top:5px; min-width:1px}
+  .barwrap{display:block; width:120px; margin-left:auto}
+  .delta{font-size:12px; letter-spacing:.02em}
+  .up{color:var(--teal)} .down{color:var(--ink-3)}
+  .chip{
+    display:inline-block; font-family:var(--data); font-size:10px; letter-spacing:.1em;
+    text-transform:uppercase; padding:2px 7px; border:1px solid currentColor;
+    border-radius:2px; margin-left:8px; vertical-align:1px;
+  }
+  .chip.free{color:var(--ink-3)}
+  .chip.over{color:var(--alarm); background:var(--alarm-fill); border-color:var(--alarm)}
+
+  /* ---- callout ---- */
+  .callout{
+    border-left:3px solid var(--alarm); background:var(--alarm-fill);
+    padding:20px 22px; display:flex; flex-direction:column; gap:10px;
+  }
+  .callout h3{
+    margin:0; font-family:var(--display); font-weight:400; font-size:1.25rem; color:var(--ink);
+  }
+  .callout p{margin:0; color:var(--ink-2); font-size:14.5px}
+  .evidence{
+    font-family:var(--data); font-size:12.5px; background:var(--surface);
+    border:1px solid var(--rule); padding:12px 14px; overflow-x:auto;
+    color:var(--ink-2); line-height:1.7;
+  }
+  .evidence b{color:var(--ink)}
+
+  /* ---- method ---- */
+  .method{
+    display:grid; grid-template-columns:repeat(auto-fit,minmax(280px,1fr)); gap:24px;
+  }
+  .card{
+    background:var(--surface); border:1px solid var(--rule); padding:20px 22px;
+    display:flex; flex-direction:column; gap:9px;
+  }
+  .card h3{
+    margin:0; font-family:var(--data); font-size:11px; letter-spacing:.13em;
+    text-transform:uppercase; color:var(--brass); font-weight:600;
+  }
+  .card p{margin:0; font-size:14px; color:var(--ink-2)}
+  .card p b{color:var(--ink)}
+
+  footer{
+    margin-top:64px; padding-top:22px; border-top:1px solid var(--rule);
+    font-family:var(--data); font-size:11.5px; letter-spacing:.05em;
+    color:var(--ink-3); display:flex; flex-wrap:wrap; gap:8px 24px;
+  }
+  a{color:var(--brass)}
+  a:focus-visible,tr:focus-visible{outline:2px solid var(--brass); outline-offset:2px}
+  @media (prefers-reduced-motion:no-preference){
+    .bar{transition:width .5s cubic-bezier(.22,.61,.36,1)}
+  }
+</style>
+
+<div class="wrap">
+
+  <header class="stack masthead">
+    <p class="eyebrow">Polymarket · Independent measurement</p>
+    <h1>Builders Radar</h1>
+    <p class="dek">Polymarket ranks its builders by volume. Volume is not revenue — and the gap between them is where the whole business hides.</p>
+    <p class="byline">
+      <span id="stamp">Measured 15 Aug 2026</span>
+      <span>Top 25 builders, 7-day window</span>
+      <span>Public endpoints, no API key</span>
+    </p>
+  </header>
+
+  <div class="thesis">
+    <div class="tile">
+      <span class="n" id="t-free">—</span>
+      <span class="lab">charge nothing</span>
+      <p>Of the 25 largest builders, this many collect <b>0&nbsp;bps</b>. The volume leader routes millions a week and earns nothing from it.</p>
+    </div>
+    <div class="tile">
+      <span class="n">400<small> bps</small></span>
+      <span class="lab">above the published cap</span>
+      <p>Two builders charge 4× the documented 100&nbsp;bps taker maximum. The published ceiling is not enforced.</p>
+    </div>
+    <div class="tile">
+      <span class="n" id="t-per">—</span>
+      <span class="lab">per active user / week</span>
+      <p>The unit that actually governs a builder's income. Not capital, not trading skill — <b>people routing orders</b>.</p>
+    </div>
+  </div>
+
+  <section>
+    <h2>Ranked by what they earn</h2>
+    <p class="sub">Fee rates are not published anywhere. Each one below is inferred from the builder's own attributed executions: the implied rate of a fill can only fall below the configured rate (payouts truncate), so the <b>maximum</b> observed rate is the estimator, not the median. The <span class="delta up">▲</span> column shows how far a builder moves when the ranking switches from volume to revenue.</p>
+    <div class="scroller">
+      <table>
+        <thead>
+          <tr>
+            <th class="l">Builder</th>
+            <th>Volume (7d)</th>
+            <th>Users</th>
+            <th>Taker</th>
+            <th>Maker</th>
+            <th>Effective</th>
+            <th>Revenue (7d)</th>
+            <th>Per user</th>
+          </tr>
+        </thead>
+        <tbody id="rows"></tbody>
+      </table>
+    </div>
+  </section>
+
+  <section>
+    <h2>The ceiling that isn't one</h2>
+    <p class="sub">Polymarket's documentation states a maximum taker fee of 100&nbsp;bps and a maker maximum of 50&nbsp;bps. Two builders exceed it by a factor of four.</p>
+    <div class="callout">
+      <h3>MetaMask and RedotPay both charge 400.00 bps</h3>
+      <p>This is not a rounding artefact. Across 261 MetaMask executions the implied rate is flat to three decimals — dispersion 0.000 — which is also what proves the fee base is USDC notional rather than shares.</p>
+      <div class="evidence">price 0.26 · size 11.3793 · notional $3.0000 · builderFee $0.119990 → <b>399.97 bps</b><br>
+price 0.57 · size 36.2000 · notional $20.6340 · builderFee $0.825360 → <b>400.00 bps</b><br>
+price 0.30 · size 66.6667 · notional $20.0000 · builderFee $0.799990 → <b>400.00 bps</b><br>
+price 0.76 · size 116.4100 · notional $88.0493 · builderFee $3.521970 → <b>400.00 bps</b></div>
+      <p>Read the same fills against <i>shares</i> instead of notional and the implied rate scatters from 68 to 303&nbsp;bps. Only one reading is constant, which settles what "notional" means in the fee formula — a question the documentation leaves open, and one that changes the answer by a factor of 1/price.</p>
+    </div>
+  </section>
+
+  <section>
+    <h2>How this was measured</h2>
+    <p class="sub">Everything here comes from three public endpoints that need no key. The method matters more than the numbers, because the numbers move daily.</p>
+    <div class="method">
+      <div class="card">
+        <h3>Fee base</h3>
+        <p>Builder fee = <b>USDC notional × bps</b>. Settled by comparing dispersion of the implied rate under both readings: <b>0.000–0.49</b> against notional, <b>0.80–2.34</b> against shares, with no overlap across 16 builder-side pairs.</p>
+      </div>
+      <div class="card">
+        <h3>Rate estimator</h3>
+        <p>The <b>maximum</b> implied rate, not the median. Payouts truncate downward, so small fills understate the setting. Observed maxima are all round numbers — 5, 10, 25, 50, 100, 400 — while medians are not.</p>
+      </div>
+      <div class="card">
+        <h3>Platform fee</h3>
+        <p>Separate, and it does not reach the builder. Taker-only, and shaped by variance: <b>rate × shares × p × (1−p)</b>, not <code>min(p, 1−p)</code>. Dispersion 1.03 against 1.91 across 774 taker fills. The rate is per-market, 0.0280 to 0.0720.</p>
+      </div>
+      <div class="card">
+        <h3>What is not known</h3>
+        <p>The unit of the published <b>volume</b> field is unverified — confirming it would mean draining a builder's full history, and even the smallest of the top 50 exceeds 12,000 executions. Every revenue figure here is therefore an <b>estimate</b>, not a reading.</p>
+      </div>
+      <div class="card">
+        <h3>Rate epochs</h3>
+        <p>Builders can reconfigure. The endpoint mixes epochs without dating them, so a rate shown here is <b>the highest ever observed</b>, not necessarily today's. Rows where two round tiers appear are flagged in the source data.</p>
+      </div>
+      <div class="card">
+        <h3>Sampling</h3>
+        <p>Two pages of attributed executions per builder, 300 rows each. Fills below $5 of notional are excluded from rate inference — at 400&nbsp;bps a $1 fill pays $0.04, and some pay $0.000000 outright.</p>
+      </div>
+    </div>
+  </section>
+
+  <footer>
+    <span>Built with DONmarket — open-source Polymarket measurement toolkit</span>
+    <span>Estimates, not readings. Rates move.</span>
+  </footer>
+</div>
+
+<script>
+const DATA = __DATA__;
+
+const usd = (n, d = 0) => "$" + n.toLocaleString("en-US", {minimumFractionDigits: d, maximumFractionDigits: d});
+const compact = (n) => n >= 1e6 ? "$" + (n / 1e6).toFixed(2) + "M"
+                    : n >= 1e3 ? "$" + (n / 1e3).toFixed(0) + "k" : usd(n);
+const bps = (v) => v === null || v === undefined ? "—" : v.toFixed(0);
+
+const rows = DATA.rows;
+const maxRev = Math.max(...rows.map(r => r.revenue_week || 0), 1);
+
+// Thesis tiles, computed from the same data the table shows.
+document.getElementById("t-free").innerHTML =
+  DATA.totals.charging_nothing + '<small> / ' + DATA.totals.builders_measured + '</small>';
+
+const perUser = rows.filter(r => r.revenue_per_user > 0).map(r => r.revenue_per_user).sort((a, b) => a - b);
+document.getElementById("t-per").innerHTML =
+  "$" + Math.round(perUser[0]) + "–" + Math.round(perUser[perUser.length - 1]);
+
+document.getElementById("rows").innerHTML = rows.map((r, i) => {
+  const revRank = i + 1;
+  const move = r.rank_volume - revRank;          // positive = climbs on revenue
+  const delta = move > 0 ? '<span class="delta up">▲' + move + "</span>"
+              : move < 0 ? '<span class="delta down">▼' + (-move) + "</span>"
+              : '<span class="delta down">—</span>';
+  const rev = r.revenue_week || 0;
+  const chip = r.exceeds_cap ? '<span class="chip over">over cap</span>'
+             : r.charges_nothing ? '<span class="chip free">free</span>' : "";
+  const width = Math.max(1, Math.round((rev / maxRev) * 120));
+
+  return `<tr>
+    <td class="l"><span class="rk">${revRank}</span><span class="name">${r.builder}</span>${chip}</td>
+    <td>${compact(r.volume_week)}</td>
+    <td>${r.active_users.toLocaleString("en-US")}</td>
+    <td>${bps(r.taker_bps)}</td>
+    <td>${bps(r.maker_bps)}</td>
+    <td>${r.blended_bps === null ? "—" : r.blended_bps.toFixed(1)}</td>
+    <td class="${rev > 0 ? "rev" : "zero"}">${rev > 0 ? usd(rev) : "0"}
+      <span class="barwrap"><span class="bar" style="width:${rev > 0 ? width : 0}px"></span></span></td>
+    <td>${r.revenue_per_user > 0 ? usd(r.revenue_per_user, 0) : "—"} ${delta}</td>
+  </tr>`;
+}).join("");
+</script>

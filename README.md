@@ -35,6 +35,34 @@ and the table above is the numerical proof.
 That is a useful result, not a failure: it closes a line of investigation for
 good instead of letting it keep costing time and capital.
 
+## Builders Radar — what the builder leaderboard hides
+
+**→ [Live page](https://midas93230-cell.github.io/donmarket/)** · regenerate with
+`python -m donmarket builder --period WEEK`
+
+Polymarket ranks its builders by **volume**. Volume is not revenue, and the gap
+between the two is the entire economics of the program. Measured 2026-08-15 on
+the top 25 builders, from three public endpoints that need no API key:
+
+| Finding | Evidence |
+|---|---|
+| **13 of the 25 largest builders charge 0 bps** | The volume leader routes $29M a week and collects nothing from it. Ranking by volume tells you almost nothing about who earns. |
+| **The published fee cap is not enforced** | Docs state a 100 bps taker maximum. **MetaMask and RedotPay both charge 400.00 bps** — dispersion 0.000 across 261 fills. |
+| **The fee base is USDC notional, not shares** | The documentation says "notional" without settling it, and on a binary market a share pays $1 at resolution — the two readings differ by a factor of 1/price (×25 at $0.04). Implied-rate dispersion: **0.000–0.49** against notional, **0.80–2.34** against shares, no overlap. |
+| **Platform fee follows variance, not notional** | `rate × shares × p × (1−p)`, not `min(p, 1−p)`. Dispersion 1.03 against 1.91 across 774 taker fills. The rate is per-market: 0.0280 to 0.0720. |
+
+None of these rates are published anywhere. Each is inferred from a builder's own
+attributed executions, using the **maximum** implied rate rather than the median —
+payouts truncate downward, so a fill's implied rate can only fall below the
+configured one. Observed maxima are all round numbers (5, 10, 25, 50, 100, 400);
+the medians are not.
+
+**What is deliberately not claimed:** the unit of the leaderboard's `volume`
+field is unverified — confirming it would require draining a builder's full
+history, and even the smallest of the top 50 exceeds 12,000 executions. Every
+revenue figure is therefore an *estimate*, and `RevenueEstimate.is_measured`
+returns `False` to keep any caller from forgetting it.
+
 ## Status
 
 **Built and tested against the live API:**

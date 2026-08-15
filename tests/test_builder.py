@@ -212,6 +212,36 @@ def test_le_depassement_du_plafond_publie_est_signale_pas_corrige():
     assert rate.exceeds_published_cap
 
 
+def test_un_taux_pile_au_plafond_n_est_PAS_signale_comme_au_dessus():
+    """Cas réel : Bagel à 100,0/50,0 — pile aux deux plafonds.
+
+    `0.5 / 1000 * 10000` vaut `50.000000000000007` en virgule flottante. Sans
+    tolérance, ce bit de bruit fait accuser un builder d'enfreindre un plafond
+    public, à côté de MetaMask et RedotPay qui, eux, facturent 400 bps. Sur une
+    page publique, mélanger les deux discrédite la mesure qui compte.
+    """
+    maker = infer_rate([_trade(1000.0, 5.0, side="MAKER")], "MAKER")
+    assert maker is not None
+    assert maker.bps == pytest.approx(50.0)
+    assert not maker.exceeds_published_cap
+
+    taker = infer_rate([_trade(1000.0, 10.0)], "TAKER")
+    assert taker is not None
+    assert taker.bps == pytest.approx(100.0)
+    assert not taker.exceeds_published_cap
+
+
+def test_un_vrai_depassement_reste_signale():
+    """La tolérance ne doit pas laisser passer MetaMask à 400 bps."""
+    rate = infer_rate([_trade(1000.0, 40.0)], "TAKER")
+    assert rate is not None and rate.exceeds_published_cap
+
+    # Et un dépassement franc mais modeste doit passer aussi : 2 bps au-dessus
+    # du plafond n'est pas du bruit de flottant.
+    modeste = infer_rate([_trade(1000.0, 10.2)], "TAKER")
+    assert modeste is not None and modeste.exceeds_published_cap
+
+
 def test_deux_paliers_ronds_trahissent_un_changement_de_taux():
     trades = [_trade(1000.0 + i, 5.0 + i * 0.005) for i in range(6)]  # ~50 bps
     trades += [_trade(1000.0 + i, 10.0 + i * 0.01) for i in range(6)]  # ~100 bps

@@ -80,6 +80,11 @@ MIN_NOTIONAL_FOR_INFERENCE_USD = 5.0
 # palier. La granularité publiée est de 1 bp ; on prend une marge.
 BPS_CLUSTER_TOLERANCE = 0.5
 
+# Marge sous laquelle un taux est considéré AU plafond et non au-dessus. La
+# granularité publiée est de 1 bp : aucun réglage réel ne tombe dans cette
+# demi-marge, seul le bruit de virgule flottante y vit.
+CAP_TOLERANCE_BPS = 0.5
+
 
 class FeeModelError(ValueError):
     """Entrée incompatible avec le modèle de frais."""
@@ -150,8 +155,24 @@ class ImpliedRate:
 
     @property
     def exceeds_published_cap(self) -> bool:
-        """Vrai quand le taux dépasse le maximum annoncé par la doc."""
-        return self.bps > published_max_bps(self.side)
+        """Vrai quand le taux dépasse VRAIMENT le maximum annoncé par la doc.
+
+        La tolérance n'est pas une coquetterie. Le taux implicite se calcule par
+        `frais / notionnel × 10000`, et un builder réglé pile à 50 bps produit
+        `50.000000000000007` en virgule flottante. Sans marge, ce bit de bruit
+        fait accuser un builder d'enfreindre un plafond public — alors que
+        l'affichage, arrondi, montre 50,0 et donne l'accusation pour
+        inexplicable.
+
+        Cas réel : Bagel, mesuré à 100,0/50,0 — exactement aux deux plafonds —
+        était signalé « au-dessus » à côté de MetaMask et RedotPay qui, eux,
+        facturent 400 bps. Mélanger les deux aurait discrédité la seule mesure
+        qui compte ici.
+
+        Une demi-point de base de marge est sûr : la granularité publiée est de
+        1 bp, donc aucun réglage réel ne se trouve dans cet intervalle.
+        """
+        return self.bps > published_max_bps(self.side) + CAP_TOLERANCE_BPS
 
     @property
     def epochs_suspected(self) -> bool:
