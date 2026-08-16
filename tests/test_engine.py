@@ -78,6 +78,48 @@ def test_les_VRAIS_noms_d_en_tetes_builder_sont_filtres(monkeypatch):
         assert secret not in nettoye
 
 
+def test_le_client_clob_recoit_bien_la_configuration_builder(monkeypatch):
+    """Le défaut qui aurait coûté tout le revenu.
+
+    `build_builder_config()` existait, était exporté et testé — mais personne
+    ne l'appelait, et `ClobClient` était construit sans lui. Les ordres
+    seraient partis sans attribution, définitivement : l'attribution se joue à
+    la signature, jamais après coup. Rien ne l'aurait signalé, puisque l'ordre
+    passe normalement — seul le revenu manque.
+    """
+    import donmarket.execute.engine as engine
+
+    vus: dict[str, object] = {}
+
+    class FauxClient:
+        def __init__(self, host, **kwargs):
+            vus.update(kwargs)
+
+        def set_api_creds(self, creds):
+            pass
+
+        def create_or_derive_api_creds(self):
+            return None
+
+    sentinelle = object()
+    monkeypatch.setenv("POLYMARKET_PRIVATE_KEY", "0x" + "ab" * 32)
+    monkeypatch.setenv("POLYMARKET_SIGNATURE_TYPE", "1")
+    monkeypatch.setenv("POLYMARKET_FUNDER", "0x" + "cd" * 20)
+
+    import donmarket.builder.attribution as attribution
+
+    monkeypatch.setattr(attribution, "build_builder_config", lambda: sentinelle)
+
+    import py_clob_client.client as clob_module
+
+    monkeypatch.setattr(clob_module, "ClobClient", FauxClient)
+
+    engine.build_clob_client()
+
+    assert "builder_config" in vus, "ClobClient construit SANS builder_config"
+    assert vus["builder_config"] is sentinelle
+
+
 def test_sceller_un_secret_n_aveugle_PAS_la_redaction(monkeypatch):
     """Le piège inverse : `os.getenv` rend la forme SCELLÉE.
 

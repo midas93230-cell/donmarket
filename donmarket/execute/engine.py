@@ -264,12 +264,33 @@ def build_clob_client(*, signature_type: int | None = None, funder: str | None =
     )
     resolved_funder = funder or configured_funder()
 
+    # ATTRIBUTION. Sans `builder_config`, le client ne signe aucun en-tête
+    # builder et le volume routé n'est attribué à personne — définitivement,
+    # puisque l'attribution se joue à la signature et jamais après coup. C'est
+    # une perte silencieuse : l'ordre passe normalement, seul le revenu manque.
+    #
+    # L'absence d'identifiants n'est PAS une erreur : on peut vouloir trader
+    # sans être builder. On journalise, on continue.
+    builder_config = None
+    try:
+        from ..builder.attribution import build_builder_config
+
+        builder_config = build_builder_config()
+        logger.info("Attribution builder active — le volume routé sera attribué")
+    except Exception as exc:  # identifiants absents, SDK indisponible…
+        logger.warning(
+            "Attribution builder INACTIVE (%s) : les ordres partiront sans "
+            "attribution et les frais correspondants seront perdus",
+            type(exc).__name__,
+        )
+
     client = ClobClient(
         CLOB_HOST,
         chain_id=POLYGON_CHAIN_ID,
         key=private_key,
         signature_type=resolved_type,
         funder=resolved_funder,
+        builder_config=builder_config,
     )
 
     key = read_secret("POLYMARKET_API_KEY")
