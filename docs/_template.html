@@ -174,7 +174,7 @@
     <p class="dek">Polymarket ranks its builders by volume. Volume is not revenue — and the gap between them is where the whole business hides.</p>
     <p class="byline">
       <span id="stamp">Measured 15 Aug 2026</span>
-      <span>Top 25 builders, 7-day window</span>
+      <span>Top 25 builders, trailing month</span>
       <span>Public endpoints, no API key</span>
     </p>
   </header>
@@ -186,9 +186,9 @@
       <p>Of the 25 largest builders, this many collect <b>0&nbsp;bps</b>. The volume leader routes millions a week and earns nothing from it.</p>
     </div>
     <div class="tile">
-      <span class="n">400<small> bps</small></span>
+      <span class="n" id="t-cap">-</span>
       <span class="lab">above the published cap</span>
-      <p>Two builders charge 4× the documented 100&nbsp;bps taker maximum. The published ceiling is not enforced.</p>
+      <p id="t-cap-note">The documented taker maximum is 100&nbsp;bps. The published ceiling is not enforced.</p>
     </div>
     <div class="tile">
       <span class="n" id="t-per">—</span>
@@ -205,12 +205,12 @@
         <thead>
           <tr>
             <th class="l">Builder</th>
-            <th>Volume (7d)</th>
+            <th>Volume (1m)</th>
             <th>Users</th>
             <th>Taker</th>
             <th>Maker</th>
             <th>Effective</th>
-            <th>Revenue (7d)</th>
+            <th>Revenue (1m)</th>
             <th>Per user</th>
           </tr>
         </thead>
@@ -282,6 +282,25 @@ const rows = DATA.rows;
 const maxRev = Math.max(...rows.map(r => r.revenue_week || 0), 1);
 
 // Thesis tiles, computed from the same data the table shows.
+// Horodatage de la mesure. Ecrit en dur, il mentirait des la premiere
+// regeneration automatique - sur une page dont l argument est la fraicheur.
+if (DATA.measured_at) {
+  document.getElementById("stamp").textContent = "Measured " + DATA.measured_at;
+}
+
+// Compte et taux lus dans les donnees : une tuile ecrite en dur deviendrait
+// fausse a la premiere regeneration ou un builder change de bareme.
+const over = rows.filter(r => r.exceeds_cap);
+const topBps = Math.max(...rows.map(r => r.taker_bps || 0), 0);
+document.getElementById("t-cap").innerHTML = topBps > 100
+  ? Math.round(topBps) + "<small> bps</small>"
+  : "none<small> today</small>";
+document.getElementById("t-cap-note").innerHTML = over.length
+  ? over.map(r => r.builder).join(" and ") + (over.length > 1 ? " charge " : " charges ")
+    + "up to " + Math.round(topBps) / 100 + "% - " + Math.round(topBps / 100)
+    + "x the documented 100&nbsp;bps taker maximum. The published ceiling is not enforced."
+  : "No builder in the current top 25 exceeds the documented 100&nbsp;bps taker maximum today. MetaMask and RedotPay have both been measured at 400&nbsp;bps.";
+
 document.getElementById("t-free").innerHTML =
   DATA.totals.charging_nothing + '<small> / ' + DATA.totals.builders_measured + '</small>';
 

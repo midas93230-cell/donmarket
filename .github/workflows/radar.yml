@@ -1,0 +1,64 @@
+# Régénère le Builders Radar chaque jour.
+#
+# Pourquoi : une page de mesures figée devient une capture d'écran. Les taux
+# changent, les builders entrent et sortent du classement, et une page datée
+# perd exactement ce qui lui donne sa valeur — être la seule source à jour sur
+# ce que les builders facturent réellement.
+#
+# AUCUN SECRET N'EST REQUIS. Les trois endpoints utilisés sont publics et sans
+# clé (mesuré le 2026-08-15). Ce workflow ne peut donc rien exfiltrer : il n'a
+# accès à rien. C'est aussi ce qui permet à n'importe qui de le forker et de
+# reproduire les chiffres — la vérifiabilité est l'argument du projet.
+
+name: Builders Radar
+
+on:
+  schedule:
+    # 06:10 UTC. Décalé de l'heure ronde à dessein : les minutes pile sont les
+    # plus chargées chez GitHub, et un job retardé d'une demi-heure n'a aucune
+    # importance ici.
+    - cron: "10 6 * * *"
+  workflow_dispatch: {}
+
+# Le job écrit dans le dépôt (commit de docs/). Rien d'autre.
+permissions:
+  contents: write
+
+concurrency:
+  group: radar
+  cancel-in-progress: false
+
+jobs:
+  refresh:
+    runs-on: ubuntu-latest
+    timeout-minutes: 15
+
+    steps:
+      - uses: actions/checkout@v4
+
+      - uses: actions/setup-python@v5
+        with:
+          python-version: "3.12"
+
+      # Pas `requirements.txt` : il tire py-clob-client et toute la chaîne
+      # cryptographique (web3, eth-account), plusieurs minutes d'installation
+      # pour un job qui ne signe rien. La page n'a besoin que du client HTTP.
+      - name: Installer les dépendances de lecture
+        run: pip install "httpx==0.28.1" "python-dotenv==1.2.2"
+
+      - name: Régénérer la page
+        run: python tools/build_radar.py
+
+      - name: Publier si les chiffres ont bougé
+        run: |
+          git config user.name "github-actions[bot]"
+          git config user.email "41898282+github-actions[bot]@users.noreply.github.com"
+          git add docs/index.html docs/radar.json
+          # `--quiet --exit-code` : sans ce garde, le job commiterait chaque
+          # jour même sans changement, et l'historique deviendrait illisible.
+          if git diff --cached --quiet; then
+            echo "Aucun changement — rien à publier."
+            exit 0
+          fi
+          git commit -m "chore(radar): mesures du $(date -u +%Y-%m-%d)"
+          git push

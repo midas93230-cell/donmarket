@@ -21,6 +21,7 @@ from __future__ import annotations
 import asyncio
 import json
 import sys
+from datetime import datetime, timezone
 from pathlib import Path
 
 ROOT = Path(__file__).resolve().parent.parent
@@ -54,7 +55,20 @@ LEADERBOARD_LIMIT = 50
 CONCURRENCY = 6
 
 
-async def collect(period: str = "WEEK") -> dict:
+# MESURÉ le 2026-08-16, et coûteux à ne pas savoir : `WEEK` est une semaine
+# CALENDAIRE, pas une fenêtre glissante de 7 jours. Mesurée un dimanche soir,
+# elle ne contenait qu'une journée : tous les volumes ont chuté d'un facteur 5
+# d'une régénération à l'autre, alors que les taux mesurés, eux, n'avaient pas
+# bougé d'un point de base. Sur une page publique régénérée chaque jour, ce
+# saut se lirait comme une panne.
+#
+# `MONTH` est retenu pour cette raison, et parce que c'est aussi la fenêtre
+# qu'affiche le classement officiel de builders.polymarket.com (« 1m Volume ») :
+# un visiteur qui compare les deux retrouve les mêmes ordres de grandeur.
+DEFAULT_PERIOD = "MONTH"
+
+
+async def collect(period: str = DEFAULT_PERIOD) -> dict:
     """Rassemble classement et barèmes mesurés. Lecture seule, sans clé."""
     async with build_data_client() as data:
         board = await fetch_leaderboard(data, period=period, limit=LEADERBOARD_LIMIT)
@@ -106,6 +120,11 @@ async def collect(period: str = "WEEK") -> dict:
 
     return {
         "period": period,
+        # Horodatage de la MESURE, pas de la publication. La page est
+        # régénérée chaque jour par GitHub Actions : une date écrite en dur
+        # dans le gabarit deviendrait fausse dès le lendemain, sur une page
+        # dont l'argument entier est la fraîcheur des chiffres.
+        "measured_at": datetime.now(timezone.utc).strftime("%d %b %Y, %H:%M UTC"),
         "rows": rows,
         "totals": {
             "builders_measured": len(rows),
