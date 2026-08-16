@@ -53,28 +53,53 @@ HTTP 200, strictement indiscernable d'un compte à zéro légitime.
 Le palier par défaut est **Unverified** : 100 transactions de relayer par jour
 et **aucun droit de facturer**. Courriel à **builder@polymarket.com**.
 
-> Subject: Verified builder tier request — DONmarket
+Texte prêt à envoyer — tout est déjà rempli sauf la clé et le nom :
+
+> **À :** builder@polymarket.com
+> **Objet :** Verified builder tier request — DONmarket
 >
 > Hello,
 >
 > I'm requesting the Verified builder tier for DONmarket, an open-source
-> Python analytics and market-making toolkit for Polymarket.
+> measurement and market-making toolkit for Polymarket.
 >
-> - Builder API key: `<coller la clé, PAS le secret ni la passphrase>`
-> - Use case: liquidity-rewards scanner and market-making engine. It measures
->   reward-pool competition using Polymarket's published scoring function,
->   backtests quoting strategies against real order-book and trade history,
->   and routes orders through the CLOB.
-> - Expected volume: `<être honnête — un chiffre inventé se verra>`
-> - Repository: `<URL du dépôt, s'il est public>`
+> - **Builder name:** DONmarket
+> - **Builder code:** `0xfc74d798dceeb76af5d5a7b8b385729ae46e2eb29ffb971dd791a9164faf0162`
+> - **Builder API key:** `<coller la clé UNIQUEMENT — jamais le secret ni la passphrase>`
+> - **Repository:** https://github.com/midas93230-cell/donmarket
+> - **Live measurements:** https://midas93230-cell.github.io/donmarket/
+>
+> **What it does.** DONmarket measures liquidity-reward economics on
+> Polymarket and quotes both sides of rewarded markets. It scores pool
+> competition with your published scoring function, corrects for the fact
+> that a posted order moves the midpoint it measures its own distance from,
+> and replays historical fills to price inventory drift. It refuses to report
+> a yield it cannot measure — 467 tests, and the disproven strategies stay
+> documented on the page rather than being quietly deleted.
+>
+> **Why it may interest you.** While integrating the Builders program I
+> measured a few things that aren't published anywhere: the fee base is USDC
+> notional rather than shares (settled by dispersion analysis across 16
+> builder-side pairs), the documented 100 bps taker cap is exceeded in
+> production, and most top-volume builders charge nothing at all. The page
+> above shows the method and the evidence. Happy to be corrected on any of it.
+>
+> **Expected volume:** starting from zero — the toolkit is new and I'm
+> onboarding liquidity providers rather than retail flow. Fee rates are set
+> deliberately low (10 bps taker / 5 bps maker) for that audience.
 >
 > Happy to provide anything else you need.
 >
-> Thanks,
-> `<nom>`
+> Best,
+> `<ton nom>`
 
 **Ne jamais mettre le secret ni la passphrase dans un courriel.** La clé
-publique suffit à vous identifier.
+publique suffit à t'identifier. Le code builder, lui, est public : il figure
+dans chaque ligne de `/builder/trades`.
+
+Pourquoi annoncer un volume de zéro plutôt que de gonfler le chiffre : ils
+voient ton volume réel dans leur propre base. Un chiffre inventé est la seule
+chose qui puisse faire refuser un dossier par ailleurs solide.
 
 ### 3. (Optionnel) Candidater à la subvention
 
