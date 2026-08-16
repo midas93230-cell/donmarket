@@ -800,8 +800,20 @@ def _run_seal(args: argparse.Namespace) -> int:
         print(f"Échec : {exc}")
         return 1
 
-    print("\nColler cette ligne dans .env (la valeur en clair n'y apparaît plus) :\n")
-    print(f"{args.variable}={scelle}")
+    if not args.write:
+        print("\nColler cette ligne dans .env (la valeur en clair n'y apparaît plus) :\n")
+        print(f"{args.variable}={scelle}")
+        print("\n(ou relancer avec --write pour que la commande écrive elle-même)")
+        return 0
+
+    from .config import ROOT_DIR
+    from .store.vault import upsert_env_line
+
+    chemin = ROOT_DIR / ".env"
+    remplace = upsert_env_line(chemin, args.variable, scelle)
+    verbe = "remplacée" if remplace else "ajoutée"
+    print(f"\n{args.variable} {verbe} dans {chemin}")
+    print("Valeur scellée par DPAPI — elle n'apparaît en clair nulle part.")
     return 0
 
 
@@ -1317,6 +1329,11 @@ def build_parser() -> argparse.ArgumentParser:
     seal_cmd.add_argument(
         "variable",
         help="nom de la variable, ex. POLYMARKET_PRIVATE_KEY (la VALEUR est demandée en saisie masquée)",
+    )
+    seal_cmd.add_argument(
+        "--write",
+        action="store_true",
+        help="écrire directement dans .env au lieu d'afficher la ligne à coller",
     )
     seal_cmd.set_defaults(handler=_run_seal)
 

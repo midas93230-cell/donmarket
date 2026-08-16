@@ -53,6 +53,48 @@ def test_un_en_tete_reconstruit_est_filtre_meme_sans_variable(monkeypatch):
     assert "AbCdEf0123456789xyz" not in nettoye
 
 
+def test_les_VRAIS_noms_d_en_tetes_builder_sont_filtres(monkeypatch):
+    """Relevés en direct le 2026-08-16 sur des en-têtes réellement signés.
+
+    La première version du motif attendait `POLY_API_KEY` et ne couvrait donc
+    aucun des en-têtes builder, tous préfixés `POLY_BUILDER_`. Le filet ne
+    filtrait rien, et rien ne l'aurait signalé.
+    """
+    for name in ("POLYMARKET_PRIVATE_KEY", "POLYMARKET_API_SECRET"):
+        monkeypatch.delenv(name, raising=False)
+
+    brut = (
+        "401 headers={'POLY_BUILDER_API_KEY': 'AbCdEf0123456789xyz', "
+        "'POLY_BUILDER_PASSPHRASE': 'Zy9876543210wvuTsR', "
+        "'POLY_BUILDER_SIGNATURE': 'c1D2e3F4g5H6i7J8k9L0=', "
+        "'POLY_BUILDER_TIMESTAMP': '1786000000000'}"
+    )
+    nettoye = _redact(brut, limit=500)
+    for secret in (
+        "AbCdEf0123456789xyz",
+        "Zy9876543210wvuTsR",
+        "c1D2e3F4g5H6i7J8k9L0=",
+    ):
+        assert secret not in nettoye
+
+
+def test_sceller_un_secret_n_aveugle_PAS_la_redaction(monkeypatch):
+    """Le piège inverse : `os.getenv` rend la forme SCELLÉE.
+
+    C'est la valeur DÉSCELLÉE qui voyage dans les en-têtes et apparaît dans une
+    erreur. Substituer la forme scellée ne retirerait donc rien — sceller ses
+    secrets aurait affaibli la protection au lieu de la renforcer.
+    """
+    import donmarket.store.vault as vault
+
+    monkeypatch.setenv("POLYMARKET_API_SECRET", "dpapi:v1:AAAAsomethingsealed")
+    monkeypatch.setattr(vault, "unseal", lambda v: "le-vrai-secret-en-clair")
+    vault.clear_cache()
+
+    nettoye = _redact("rejet: le-vrai-secret-en-clair dans la requete")
+    assert "le-vrai-secret-en-clair" not in nettoye
+
+
 def test_le_message_reste_diagnostiquable(secrets_configures):
     """Un journal illisible pousse à désactiver la protection. Équilibre tenu."""
     nettoye = _redact("400 Bad Request: insufficient balance for market 0xdeadbeef")

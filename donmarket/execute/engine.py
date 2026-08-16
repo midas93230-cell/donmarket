@@ -158,8 +158,16 @@ class ExecutionResult:
 
 # En-têtes d'authentification du CLOB : leur VALEUR ne doit jamais atteindre un
 # journal, quel que soit le chemin par lequel elle y arrive.
+# Noms RELEVÉS en direct le 2026-08-16 sur des en-têtes builder réellement
+# signés : POLY_BUILDER_API_KEY, POLY_BUILDER_PASSPHRASE,
+# POLY_BUILDER_SIGNATURE, POLY_BUILDER_TIMESTAMP. Le segment « BUILDER_ » était
+# absent de la première version de ce motif, qui ne filtrait donc AUCUN des
+# en-têtes réellement produits — une protection qui ne protégeait rien, et dont
+# rien ne l'aurait signalé.
 _AUTH_HEADER_PATTERN = re.compile(
-    r"(POLY[_-](?:API[_-]KEY|PASSPHRASE|SIGNATURE|NONCE)['\"?:=\s]+)([A-Za-z0-9+/=_-]{8,})",
+    r"(POLY[_-](?:BUILDER[_-])?"
+    r"(?:API[_-]KEY|PASSPHRASE|SIGNATURE|NONCE|TIMESTAMP)['\"?:=\s]+)"
+    r"([A-Za-z0-9+/=_-]{8,})",
     re.IGNORECASE,
 )
 
@@ -189,10 +197,24 @@ def _redact(message: object, limit: int = 200) -> str:
     pour ce qui aurait fuité par un chemin inattendu — un en-tête reconstruit,
     une réponse d'API qui renvoie la clé.
     """
+    from ..store.vault import read_secret
+
     text = str(message).replace("\n", " ")
 
     for name in _SECRET_VARS:
-        value = (os.getenv(name) or "").strip()
+        # `read_secret` et non `os.getenv` : une valeur scellée par DPAPI se lit
+        # `dpapi:v1:…` dans l'environnement, alors que c'est la valeur DÉSCELLÉE
+        # qui voyage dans les en-têtes et qui apparaîtra dans une erreur.
+        # Substituer la forme scellée ne retirerait donc rien du tout — sceller
+        # ses secrets aurait AVEUGLÉ la redaction, exactement l'inverse de
+        # l'effet recherché.
+        try:
+            value = (read_secret(name) or "").strip()
+        except Exception:
+            # Un descellement impossible ne doit jamais empêcher de journaliser
+            # une erreur : on retombe sur la forme brute, qui protège au moins
+            # les valeurs non scellées.
+            value = (os.getenv(name) or "").strip()
         # Sous 8 caractères, une substitution ferait plus de dégâts qu'elle
         # n'en éviterait : elle mutilerait des fragments de message anodins.
         if len(value) >= 8:

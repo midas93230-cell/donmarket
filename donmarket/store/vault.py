@@ -161,3 +161,49 @@ def read_secret(name: str) -> str | None:
 def clear_cache() -> None:
     """Vide le cache en mémoire. Utile aux tests, et après rotation d'un secret."""
     _cache.clear()
+
+
+def upsert_env_line(path: "Path", name: str, value: str) -> bool:
+    """Pose `name=value` dans un fichier .env, sans toucher au reste.
+
+    Existe parce que l'étape « colle ça dans le fichier et enregistre » a
+    échoué trois fois de suite : le presse-papier atteint bien l'éditeur, mais
+    le fichier n'est jamais écrit sur le disque, et rien ne le signale. Le
+    programme voit alors une variable vide, exactement comme si l'utilisateur
+    n'avait rien fait. Une manipulation dont l'échec est indiscernable de
+    l'inaction doit être automatisée, pas mieux documentée.
+
+    Rend `True` si une ligne existante a été remplacée, `False` si la variable
+    a été ajoutée. Les commentaires et les autres variables sont préservés à
+    l'octet près ; les doublons éventuels de `name` sont supprimés, pour qu'il
+    ne reste jamais deux définitions dont seule la dernière compte.
+
+    L'écriture est ATOMIQUE (fichier temporaire puis remplacement) : une
+    interruption au mauvais moment laisserait sinon un .env tronqué, c'est-à-dire
+    des identifiants perdus alors qu'on croyait les sauvegarder.
+    """
+    from pathlib import Path as _Path
+
+    path = _Path(path)
+    prefix = f"{name}="
+    existing = (
+        path.read_text(encoding="utf-8").splitlines() if path.exists() else []
+    )
+
+    out: list[str] = []
+    replaced = False
+    for line in existing:
+        if line.lstrip().startswith(prefix):
+            if not replaced:
+                out.append(prefix + value)
+                replaced = True
+            continue  # doublons éventuels : supprimés
+        out.append(line)
+
+    if not replaced:
+        out.append(prefix + value)
+
+    temp = path.with_suffix(path.suffix + ".tmp")
+    temp.write_text("\n".join(out) + "\n", encoding="utf-8")
+    temp.replace(path)
+    return replaced

@@ -128,6 +128,49 @@ def test_le_descellement_est_mis_en_cache(monkeypatch):
     assert appels["n"] == 1
 
 
+def test_upsert_remplace_sans_toucher_au_reste(tmp_path):
+    """Les commentaires et les autres variables survivent à l'octet près."""
+    env = tmp_path / ".env"
+    env.write_text(
+        "# un commentaire\nAUTRE=intact\nCIBLE=ancienne\n# fin\n", encoding="utf-8"
+    )
+
+    assert vault.upsert_env_line(env, "CIBLE", "nouvelle") is True
+
+    contenu = env.read_text(encoding="utf-8")
+    assert "# un commentaire" in contenu
+    assert "AUTRE=intact" in contenu
+    assert "CIBLE=nouvelle" in contenu
+    assert "ancienne" not in contenu
+    assert "# fin" in contenu
+
+
+def test_upsert_ajoute_quand_la_variable_manque(tmp_path):
+    env = tmp_path / ".env"
+    env.write_text("AUTRE=intact\n", encoding="utf-8")
+
+    assert vault.upsert_env_line(env, "NOUVELLE", "valeur") is False
+    assert "NOUVELLE=valeur" in env.read_text(encoding="utf-8")
+
+
+def test_upsert_supprime_les_doublons(tmp_path):
+    """Deux définitions dont seule la dernière compte : piège silencieux."""
+    env = tmp_path / ".env"
+    env.write_text("CIBLE=une\nAUTRE=x\nCIBLE=deux\n", encoding="utf-8")
+
+    vault.upsert_env_line(env, "CIBLE", "finale")
+
+    lignes = env.read_text(encoding="utf-8").splitlines()
+    assert [l for l in lignes if l.startswith("CIBLE=")] == ["CIBLE=finale"]
+    assert "AUTRE=x" in lignes
+
+
+def test_upsert_cree_le_fichier_absent(tmp_path):
+    env = tmp_path / ".env"
+    assert vault.upsert_env_line(env, "CIBLE", "valeur") is False
+    assert env.read_text(encoding="utf-8") == "CIBLE=valeur\n"
+
+
 @pytest.mark.slow
 @pytest.mark.skipif(not WINDOWS, reason="DPAPI n'existe que sous Windows")
 def test_aller_retour_reel_sous_windows():
