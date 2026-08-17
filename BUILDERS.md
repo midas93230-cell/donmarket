@@ -50,8 +50,25 @@ HTTP 200, strictement indiscernable d'un compte à zéro légitime.
 
 ### 2. Demander le palier « Verified » — sans lui, zéro monétisation
 
-Le palier par défaut est **Unverified** : 100 transactions de relayer par jour
-et **aucun droit de facturer**. Courriel à **builder@polymarket.com**.
+Le palier par défaut est **Unverified**. Ce qu'il coûte réellement, relevé sur
+`docs.polymarket.com/programs/builders/tiers` le 2026-08-16 :
+
+| | Unverified | Verified | Partner |
+|---|---|---|---|
+| Transactions relayer/jour | **100** | 10 000 | illimité |
+| Frais builder | oui | oui | oui |
+| Visibilité leaderboard | **non** | oui | oui |
+
+**Correction d'une affirmation antérieure de ce fichier** : il y était écrit
+qu'Unverified n'a « aucun droit de facturer ». C'est faux — le tableau des
+paliers accorde les frais aux trois niveaux. Les deux vraies contraintes sont
+le plafond de **100 transactions par jour**, qu'une stratégie de tenue de marché
+épuise en une heure en recotant deux branches à la minute, et l'**absence du
+leaderboard**, qui est le seul canal par lequel un teneur de liquidité peut
+découvrir l'outil.
+
+Courriel à **builder@polymarket.com**, avec clé d'API, cas d'usage, volume
+attendu ; réponse annoncée « within a few business days ».
 
 Texte prêt à envoyer — tout est déjà rempli sauf la clé et le nom :
 
@@ -74,7 +91,7 @@ Texte prêt à envoyer — tout est déjà rempli sauf la clé et le nom :
 > competition with your published scoring function, corrects for the fact
 > that a posted order moves the midpoint it measures its own distance from,
 > and replays historical fills to price inventory drift. It refuses to report
-> a yield it cannot measure — 467 tests, and the disproven strategies stay
+> a yield it cannot measure — 469 tests, and the disproven strategies stay
 > documented on the page rather than being quietly deleted.
 >
 > **Why it may interest you.** While integrating the Builders program I
@@ -113,7 +130,7 @@ Brouillon de description :
 > DONmarket is an open-source Python toolkit for Polymarket liquidity
 > provision. It scores reward-pool competition using the published scoring
 > function, replays historical fills to measure inventory drift, and refuses to
-> report a yield it cannot measure. 438 tests. It also maps the Builders
+> report a yield it cannot measure. 469 tests. It also maps the Builders
 > program itself: it infers each builder's actual fee schedule from attributed
 > executions, which reveals that most top-volume builders charge nothing.
 
