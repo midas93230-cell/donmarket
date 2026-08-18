@@ -321,7 +321,11 @@ def parse_book(payload: Any, *, market_id: int | None = None) -> PredictionBook:
         market_id=resolved,
         bids=parse_levels(payload.get("bids"), where="bids"),
         asks=parse_levels(payload.get("asks"), where="asks"),
-        updated_ms=_opt_int(payload, "updateTimestampMs", "updateTime", "time"),
+        # `timestamp` est le nom du REST (mesuré 2026-08-18) ;
+        # `updateTimestampMs` celui du flux WebSocket. Les deux coexistent.
+        updated_ms=_opt_int(
+            payload, "timestamp", "updateTimestampMs", "updateTime", "time"
+        ),
         token_id=_opt_str(payload, "tokenId", "outcomeTokenId", "token"),
         raw=dict(payload),
     )
@@ -403,15 +407,86 @@ def parse_market(payload: Any) -> PredictionMarket:
         title=_opt_str(payload, "title", "topic", "question", "name"),
         category=_opt_str(payload, "categorySlug", "category", "categoryName"),
         status=_opt_str(payload, "status", "tradingStatus", "marketStatus"),
+        # `endDate` est le nom RÉEL (mesuré) ; les autres restent essayés au cas
+        # où une route voisine emploierait la convention SAPI habituelle.
         end_time_ms=_opt_int(
-            payload, "endTime", "endTimeMs", "closeTime", "expireTime"
+            payload, "endDate", "endTime", "endTimeMs", "closeTime", "expireTime"
         ),
-        volume_usdt=_opt_float(payload, "volume", "volume24hUsd", "volumeUsd"),
+        volume_usdt=_opt_float(
+            payload, "tradeVolume", "volume", "volume24hUsd", "volumeUsd"
+        ),
         liquidity_usdt=_opt_float(payload, "liquidity", "totalLiquidityUsd"),
         fee_rate_bps=_opt_int(payload, "feeRateBps", "feeRate", "takerFeeBps"),
         outcome_token_ids=_collect_token_ids(payload),
         raw=dict(payload),
     )
+
+
+# Champs qui n'existent QUE sur le topic et sans lesquels un marché ne se
+# calcule pas. Recopiés sur chaque marché à l'aplatissement, sans jamais
+# écraser une valeur propre au marché : le topic agrège, ses chiffres sont des
+# totaux, et les afficher par branche serait faux.
+TOPIC_CONTEXT_FIELDS = (
+    "endDate",
+    "startDate",
+    "feeRateBps",
+    "slippageBps",
+    "collateral",
+    "chainId",
+    "vendor",
+    "topicType",
+    "chartType",
+    "symbol",
+    "slug",
+    "variantData",
+    "exchangeContractAddress",
+    "participantCount",
+)
+
+
+def flatten_market_topics(
+    payload: Any, *, where: str
+) -> tuple[Mapping[str, Any], ...]:
+    """Aplatit `marketTopics[].markets[]` en une liste de marchés négociables.
+
+    MESURÉ le 2026-08-18 (première lecture authentifiée) : `/market/list` rend
+    une structure à DEUX niveaux. Le *topic* porte la question, l'échéance et
+    le taux de frais ; le *marché* porte l'identifiant, les branches et leurs
+    jetons. Aucun des deux ne suffit seul :
+
+      - demander un carnet avec un `marketTopicId` échoue d'une façon qui
+        ressemble à un marché disparu ;
+      - garder le marché nu le prive d'échéance et de taux de frais, donc de
+        tout calcul de rendement.
+
+    Un topic sans `markets` LÈVE au lieu de disparaître : c'est une anomalie de
+    schéma, et l'escamoter ferait passer une liste tronquée pour une liste
+    complète — exactement le genre de silence qui a coûté 56 séries de prix le
+    2026-08-01.
+    """
+    topics = extract_rows(payload, where=where)
+    marches: list[Mapping[str, Any]] = []
+    for topic in topics:
+        inner = topic.get("markets")
+        if not isinstance(inner, list) or not inner:
+            raise BinanceSchemaError(
+                f"{where} : topic {topic.get('marketTopicId')!r} sans marché "
+                "négociable — le schéma à deux niveaux a changé, ou cette "
+                "ligne n'est pas un topic"
+            )
+        contexte = {
+            k: topic[k] for k in TOPIC_CONTEXT_FIELDS if topic.get(k) is not None
+        }
+        for marche in inner:
+            if not isinstance(marche, Mapping):
+                raise BinanceSchemaError(f"{where} : marché non-objet dans un topic")
+            # Le contexte d'abord, la ligne ensuite : à nom égal, c'est la
+            # valeur du MARCHÉ qui gagne.
+            fusion = dict(contexte)
+            fusion.update(marche)
+            fusion.setdefault("marketTopicId", topic.get("marketTopicId"))
+            marches.append(fusion)
+    return tuple(marches)
 
 
 def extract_rows(payload: Any, *, where: str) -> tuple[Mapping[str, Any], ...]:
@@ -427,7 +502,22 @@ def extract_rows(payload: Any, *, where: str) -> tuple[Mapping[str, Any], ...]:
         candidates: Any = payload
     elif isinstance(payload, Mapping):
         candidates = None
-        for key in ("data", "rows", "list", "items", "markets", "categories"):
+        for key in (
+            "data",
+            "rows",
+            "list",
+            "items",
+            # MESURÉ le 2026-08-18 : `/market/list` enveloppe sous
+            # `marketTopics`, `/category/list` sous `categories`,
+            # `/balance/payment-options` sous `items`. Aucun de ces noms n'est
+            # documenté ; ils viennent tous d'une lecture en direct.
+            "marketTopics",
+            "markets",
+            "categories",
+            "orders",
+            "positions",
+            "wallets",
+        ):
             value = payload.get(key)
             if isinstance(value, list):
                 candidates = value

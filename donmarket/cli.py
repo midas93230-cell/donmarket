@@ -973,8 +973,8 @@ async def _run_binance(args: argparse.Namespace) -> int:
         async with client:
             quota = await client.quota_status()
             soldes = await client.payment_option_balances()
-            marches = await client.list_markets(rows=args.limit)
-            carnets = await client.fetch_books([m.market_id for m in marches])
+            marches = await client.list_markets(limit=args.limit)
+            carnets = await client.fetch_books(marches)
     except (BinanceApiError, BinanceSchemaError) as exc:
         print(f"\n✗ {exc}")
         return 1
@@ -994,16 +994,32 @@ async def _run_binance(args: argparse.Namespace) -> int:
         )
 
     if carnets:
-        print(f"\n{'marché':>9} {'bid':>7} {'ask':>7} {'écart':>7}  titre")
+        # Une ligne par BRANCHE, pas par marché : chaque branche a son carnet
+        # propre (mesuré 2026-08-18). Les fondre en une seule ligne redonnerait
+        # exactement l'illusion que porte l'adaptateur Predict.fun — un carnet
+        # unique dont l'autre côté serait déduit.
+        entete = "{:>9} {:>8} {:>7} {:>7} {:>7}  {}".format(
+            "marché", "branche", "bid", "ask", "écart", "titre"
+        )
+        print()
+        print(entete)
         for marche in marches:
-            carnet = carnets.get(marche.market_id)
-            if carnet is None or not carnet.is_two_sided:
-                continue
-            print(
-                f"{marche.market_id:>9} {carnet.best_bid.price:>7.3f} "
-                f"{carnet.best_ask.price:>7.3f} {carnet.spread:>7.3f}  "
-                f"{(marche.title or '(titre non lu)')[:44]}"
-            )
+            for token_id in marche.outcome_token_ids:
+                carnet = carnets.get(token_id)
+                if carnet is None or not carnet.is_two_sided:
+                    continue
+                branche = str(carnet.raw.get("outcome") or "?")
+                titre = (marche.title or "(titre non lu)")[:40]
+                print(
+                    "{:>9} {:>8} {:>7.3f} {:>7.3f} {:>7.3f}  {}".format(
+                        marche.market_id,
+                        branche,
+                        carnet.best_bid.price,
+                        carnet.best_ask.price,
+                        carnet.spread,
+                        titre,
+                    )
+                )
 
     print(
         "\nCes écarts sont AFFICHÉS, pas OBTENUS. La leçon du 2026-07-28 vaut\n"

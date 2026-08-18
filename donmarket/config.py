@@ -99,10 +99,30 @@ BINANCE_PREDICTION_NEEDS_KEY = True
 # ce qui rend le module sensible à l'horloge de la machine.
 BINANCE_RECV_WINDOW_MS = 5000
 
+# Route PUBLIQUE et non signée qui donne l'heure du serveur. C'est la seule du
+# domaine qui réponde sans clé — et c'est précisément ce qu'il faut, puisqu'on
+# l'interroge quand la signature vient d'être refusée.
+BINANCE_TIME_PATH = "/api/v3/time"
+
+# MESURÉ le 2026-08-18 sur cette machine : horloge en avance de ~6 000 ms sur
+# Binance, `w32time` arrêté depuis des semaines et dérive libre. Binance refuse
+# au-delà de 1 000 ms d'AVANCE quelle que soit `recvWindow` — augmenter
+# `recvWindow` ne répare donc RIEN dans ce sens-là. Au-delà de ce seuil, on
+# journalise l'écart : une horloge qui dérive est un fait d'exploitation, pas
+# un détail de mise au point.
+BINANCE_CLOCK_SKEW_WARN_MS = 500
+
 # Minimum d'un ordre MARKET documenté dans le change-log du 2026-06-16 :
 # `amountIn` ≳ 1,5 USDT, « varies by market depth ». Les LIMIT n'y sont pas
 # soumis. Valeur indicative, à revérifier en direct dès qu'une clé existe.
 BINANCE_MARKET_ORDER_MIN_USDT = 1.5
+
+# PIÈGE D'UNITÉ MESURÉ le 2026-08-18. `amountIn` et `feeAmount` sont exprimés
+# en unités de base à 18 décimales, pas en USDT — devis réel : `amountIn`
+# "2000000000000000000" pour 2 USDT. Envoyer `8.0` demande huit wei et rend
+# `-9000 order amount is too small`, message qui désigne le solde alors que la
+# faute est à l'unité.
+BINANCE_COLLATERAL_DECIMALS = 18
 
 
 def _env_float(name: str, default: float) -> float:

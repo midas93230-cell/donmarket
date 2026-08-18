@@ -37,9 +37,43 @@ from __future__ import annotations
 
 import logging
 from dataclasses import dataclass, field
+from decimal import Decimal
 from typing import Any, Mapping, Sequence
 
-from ..config import BINANCE_MARKET_ORDER_MIN_USDT
+from ..config import BINANCE_MARKET_ORDER_MIN_USDT, BINANCE_COLLATERAL_DECIMALS
+from .api import DEFAULT_VENDOR
+
+# Au-delà, c'est forcément une conversion appliquée deux fois : personne ne
+# passe un ordre d'un milliard de dollars sur un marché de prédiction, et une
+# double conversion est l'erreur naturelle une fois le piège d'unité connu.
+MAX_PLAUSIBLE_USDT = 1_000_000_000.0
+
+
+def to_base_units(amount_usdt: float) -> str:
+    """Convertit un montant en USDT vers l'unité que l'API attend réellement.
+
+    MESURÉ le 2026-08-18 : `amountIn` est en UNITÉS DE BASE à 18 décimales.
+    Envoyer `8.0` demande huit wei, et le serveur répond `-9000 order amount is
+    too small` — message qui accuse le solde alors que la faute est à l'unité.
+    Le diagnostic n'a été possible que par recoupement : le compte avait
+    8,73 USDT et des ordres déjà passés à 1 et 5 USDT, donc un minimum
+    supérieur à 8 était impossible.
+
+    Le passage par `Decimal` n'est pas une coquetterie : `int(0.07 * 10**18)`
+    rend 69999999999999992, parce que 0,07 n'est pas représentable en binaire.
+
+    Le plafond de vraisemblance garde l'erreur SYMÉTRIQUE, la seule vraiment
+    coûteuse : convertir deux fois demanderait 10^18 fois trop.
+    """
+    if amount_usdt <= 0:
+        raise ValueError(f"montant {amount_usdt} : un ordre se passe en positif")
+    if amount_usdt > MAX_PLAUSIBLE_USDT:
+        raise ValueError(
+            f"montant {amount_usdt} USDT invraisemblable — c'est la signature "
+            "d'une conversion en unités de base appliquée deux fois"
+        )
+    quantum = Decimal(10) ** BINANCE_COLLATERAL_DECIMALS
+    return str(int((Decimal(str(amount_usdt)) * quantum).to_integral_value()))
 from ..execute.limits import ExecutionLimits, gate
 from .api import BinancePredictionClient
 from .model import BinanceApiError, BinanceSchemaError
@@ -193,7 +227,13 @@ class PredictionTrader:
         self.limits = limits
         self.armed = armed
 
-    async def get_quote(self, order: PredictionOrder) -> Quote:
+    async def get_quote(
+        self,
+        order: PredictionOrder,
+        *,
+        vendor: str | None = None,
+        slippage_bps: int = 1000,
+    ) -> Quote:
         """`POST /trade/get-quote`. Appelé même désarmé — c'est une lecture.
 
         Obtenir le devis en mode désarmé est délibéré : c'est la seule façon
@@ -201,12 +241,25 @@ class PredictionTrader:
         passer. Le devis n'engage rien tant qu'il n'est pas présenté à
         `place-order-bundle`.
         """
+        # TROIS paramètres découverts en escalier le 2026-08-18 — le serveur
+        # n'en nomme qu'un par refus, donc leur absence se découvre une à une :
+        # `walletAddress`, `vendor`, puis `amountIn`.
+        #
+        # `amountIn` est un MONTANT EN USDT, pas un nombre de parts. C'est le
+        # même champ que le change-log Binance associe au minimum de ~1,5 USDT
+        # sur les ordres MARKET — cohérence qui confirme l'unité.
         params: dict[str, Any] = {
+            "walletAddress": await self.client.wallet_address(),  # type: ignore[attr-defined]
+            "vendor": vendor or DEFAULT_VENDOR,
             "marketId": order.market_id,
             "tokenId": order.token_id,
             "side": order.side,
             "orderType": order.order_type,
+            "amountIn": to_base_units(order.notional_usdt),
             "quantity": order.size,
+            # Obligatoire aussi (mesuré) : sans lui, `-3026`. La valeur vient du
+            # topic ; 1000 bps est ce que Binance publie par défaut.
+            "slippageBps": slippage_bps,
         }
         if order.order_type == LIMIT:
             params["price"] = order.price

@@ -1,0 +1,42 @@
+À      : builder@polymarket.com
+Objet  : Verified builder tier request — DONmarket
+
+À REMPLIR AVANT ENVOI (2 champs) :
+  · la CLÉ API builder (publique) — jamais le secret ni la passphrase
+  · ton nom en signature
+─────────────────────────────────────────────────────────────────────────
+
+Hello,
+
+I'm requesting the Verified builder tier for DONmarket, an open-source
+measurement and market-making toolkit for Polymarket.
+
+- Builder name: DONmarket
+- Builder code: 0xfc74d798dceeb76af5d5a7b8b385729ae46e2eb29ffb971dd791a9164faf0162
+- Builder API key: <COLLER LA CLE API PUBLIQUE ICI>
+- Repository: https://github.com/midas93230-cell/donmarket
+- Live measurements: https://midas93230-cell.github.io/donmarket/
+
+What it does. DONmarket measures liquidity-reward economics on Polymarket and
+quotes both sides of rewarded markets. It scores pool competition with your
+published scoring function, corrects for the fact that a posted order moves
+the midpoint it measures its own distance from, and replays historical fills
+to price inventory drift. It refuses to report a yield it cannot measure --
+512 tests, and the disproven strategies stay documented on the page rather
+than being quietly deleted.
+
+Why it may interest you. While integrating the Builders program I measured a
+few things that aren't published anywhere: the fee base is USDC notional
+rather than shares (settled by dispersion analysis across builder-side pairs),
+the documented 100 bps taker cap is exceeded in production, and most
+top-volume builders charge nothing at all. The page above shows the method and
+the evidence. Happy to be corrected on any of it.
+
+Expected volume: starting from zero -- the toolkit is new and I'm onboarding
+liquidity providers rather than retail flow. Fee rates are set deliberately
+low (10 bps taker / 5 bps maker) for that audience.
+
+Happy to provide anything else you need.
+
+Best,
+<TON NOM>
