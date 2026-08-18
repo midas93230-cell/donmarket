@@ -32,7 +32,7 @@ de référence ; la version anglaise en est un résumé fidèle.*
   vraies exécutions du marché, récompense notée sur les ordres tels qu'ils
   dorment (huitième mesure).
 - Persistance SQLite (historique des marchés, des scans et des opportunités).
-- 291 tests, dont cinq régressions payées cher (voir « Pièges »).
+- 489 tests, dont cinq régressions payées cher (voir « Pièges »).
 
 **Performance mesurée :** 2 100 marchés + 4 200 carnets analysés en **13,5 s** ;
 un scan de récompenses complet (2 099 marchés, 948 carnets, 60 historiques à la
@@ -383,6 +383,52 @@ remplissages, jamais la session. Onze tests l'entourent maintenant.
 11. **Le flux n'envoie d'instantané qu'à l'abonnement.** Appliquer des
     `price_change` à un jeton dont on n'a pas reçu le `book` construit un carnet
     partiel qui a l'air complet.
+
+## Router son volume par DONmarket
+
+Polymarket permet à une application d'attribuer le volume qu'elle route et d'y
+prélever un frais. C'est ce qui finance ce dépôt, et les conditions sont écrites
+ici plutôt qu'enfouies, parce que **le frais est payé par toi, le trader, sur tes
+propres exécutions** — pas par Polymarket, pas par nous.
+
+| | Taux |
+|---|---|
+| Exécutions preneuses | **10 bps** (0,10 %) |
+| Exécutions teneuses | **5 bps** (0,05 %) |
+
+Pour l'échelle : deux des plus gros builders de la plateforme prélèvent **400
+bps** et ne publient aucun taux. Le nôtre est sur cette page parce qu'un chiffre
+qu'il faut déduire de ses propres exécutions n'est pas un chiffre annoncé.
+
+**Ce que ça achète.** Tout ce dépôt, que tu peux aussi utiliser entièrement
+gratuitement : l'attribution est facultative et désactivée par défaut. Router
+n'ouvre aucune fonction supplémentaire — ça décide seulement si le travail
+continue. Si les huit mesures ci-dessus t'ont évité une seule mauvaise position,
+le compte est fait.
+
+**Pour l'activer** — deux lignes dans ton `.env` :
+
+```
+POLYMARKET_BUILDER_REMOTE_URL=https://donmarket-signer.midas93230.workers.dev
+POLYMARKET_BUILDER_REMOTE_TOKEN=<remis individuellement — demande-le>
+```
+
+`python -m donmarket builder` rend alors `attribution_mode: remote`. Ta clé
+privée ne quitte jamais ta machine, et tu ne détiens jamais notre secret builder.
+
+**Ce que le signeur voit, sans détour.** Les en-têtes d'attribution signent le
+*corps* de l'ordre : le service reçoit donc chaque ordre avant qu'il n'atteigne
+le carnet. C'est inhérent au protocole, pas un choix d'architecture, et c'est la
+première objection qu'un teneur de liquidité sérieux doit poser. En réponse : le
+service tient dans un seul fichier lisible ([`signer/worker.js`](signer/worker.js)),
+il ne journalise ni corps d'ordre, ni en-têtes, ni jeton, et ne stocke rien. La
+parité de signature avec le SDK Python est vérifiée avant chaque déploiement, et
+l'a été de nouveau en production le 2026-08-18 — quatre cas, quatre signatures
+identiques.
+
+**Laisser ces deux lignes vides est parfaitement légitime.** Les ordres partent
+sans attribution, aucun frais n'est prélevé, et toutes les commandes se
+comportent à l'identique.
 
 ## Ce qui n'est pas fait
 

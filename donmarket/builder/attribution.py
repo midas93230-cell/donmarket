@@ -121,6 +121,16 @@ def build_builder_config() -> Any:
     """
     attribution = load_attribution()
     if not attribution.has_api_credentials:
+        # Pas d'identifiants locaux : c'est le cas de TOUT utilisateur tiers,
+        # puisque le dépôt est public et que le secret n'y figure évidemment
+        # pas. Le mode distant est le seul chemin par lequel son volume peut
+        # être attribué — voir `remote.py`. On ne l'essaie que s'il est
+        # configuré : sinon le refus ci-dessous reste le bon message.
+        from .remote import build_remote_builder_config, load_remote_config
+
+        if load_remote_config().is_configured:
+            return build_remote_builder_config()
+
         manquants = ", ".join(n for n in API_VARS if not _present(n))
         raise AttributionNotConfigured(
             f"identifiants d'API builder absents : {manquants}. "
@@ -148,12 +158,24 @@ def build_builder_config() -> Any:
 
 def attribution_status() -> dict[str, object]:
     """L'état d'attribution tel qu'un rapport l'affiche. Aucun secret dedans."""
+    from .remote import load_remote_config, remote_status
+
     attribution = load_attribution()
+    remote = load_remote_config()
     return {
         "code": attribution.code.short if attribution.code else None,
         "code_error": attribution.code_error,
         "can_read_attribution": attribution.can_read_attribution,
-        "can_attribute": attribution.can_attribute,
+        # Un tiers attribue par le signeur distant, sans jamais détenir le
+        # secret : dire « can_attribute: false » parce qu'il n'a pas les
+        # identifiants locaux lui ferait croire que son volume est perdu.
+        "can_attribute": attribution.can_attribute or remote.is_configured,
+        "attribution_mode": (
+            "local"
+            if attribution.can_attribute
+            else "remote" if remote.is_configured else None
+        ),
+        **remote_status(),
         "missing": list(attribution.missing),
         # Le palier Verified ne se lit nulle part dans l'API : il dépend d'une
         # approbation humaine. On ne prétend donc JAMAIS savoir si les frais

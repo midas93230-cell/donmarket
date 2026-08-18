@@ -90,7 +90,7 @@ returns `False` to keep any caller from forgetting it.
   market executions, rewards scored on orders as they actually rest
   (eighth measurement).
 - SQLite persistence (market, scan and opportunity history).
-- **392 tests**, including five regressions that were paid for the hard way
+- **489 tests**, including five regressions that were paid for the hard way
   (see "Pitfalls").
 
 **Measured performance:** 2,100 markets + 4,200 books analysed in **13.5 s**;
@@ -201,6 +201,49 @@ public read-only endpoints, including `paper`, which sends no orders.
 
 Copy `.env.example` to `.env` and fill it in only if you intend to arm execution.
 `.env` is gitignored.
+
+## Routing your volume through DONmarket
+
+Polymarket lets an application attribute the volume it routes and charge a fee on
+it. That is how this repository is funded, and the terms are stated here rather
+than buried, because **the fee is paid by you, the trader, on your own fills** —
+not by Polymarket, and not by us.
+
+| | Rate |
+|---|---|
+| Taker fills | **10 bps** (0.10%) |
+| Maker fills | **5 bps** (0.05%) |
+
+For scale: two of the largest builders on the platform charge **400 bps** and
+publish no rate at all. Ours is on this page because a number you have to
+reverse-engineer from your own fills is not a disclosed number.
+
+**What you get for it.** Everything in this repository, which you can also use
+entirely for free — attribution is opt-in and off by default. What routing buys
+is not a feature gate; it is whether the work continues. If the eight
+measurements above saved you from one bad position, that is the trade.
+
+**Turning it on** — two lines in your `.env`:
+
+```
+POLYMARKET_BUILDER_REMOTE_URL=https://donmarket-signer.midas93230.workers.dev
+POLYMARKET_BUILDER_REMOTE_TOKEN=<issued individually — ask>
+```
+
+`python -m donmarket builder` then reports `attribution_mode: remote`. Your
+private key never leaves your machine, and you never hold our builder secret.
+
+**What the signer sees, stated plainly.** Polymarket's attribution headers sign
+the *body* of the order, so the signing service receives each order before it
+reaches the book. That is inherent to the protocol, not a design choice, and it
+is the first objection a serious market maker should raise. In answer: the
+service is one readable file ([`signer/worker.js`](signer/worker.js)), it logs
+neither order bodies nor headers nor tokens, and it stores nothing. Signature
+parity against the Python SDK is verified before every deploy, and was verified
+again in production on 2026-08-18 — four cases, four identical signatures.
+
+**Leaving both lines empty is entirely legitimate.** Your orders go out
+unattributed, no fee is charged, and every command behaves identically.
 
 ## What is not done
 
