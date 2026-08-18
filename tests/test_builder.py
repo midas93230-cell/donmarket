@@ -552,8 +552,15 @@ def test_une_part_preneur_hors_bornes_est_refusee():
 
 @pytest.fixture
 def env_vierge(monkeypatch):
-    """Isole du `.env` de la machine : sinon le test dit la vérité d'ici."""
-    for name in (CODE_VAR, *API_VARS):
+    """Isole du `.env` de la machine : sinon le test dit la vérité d'ici.
+
+    Les variables du signeur DISTANT sont effacées elles aussi : depuis qu'un
+    tiers peut attribuer sans identifiants locaux, une URL laissée dans le `.env`
+    ferait passer au vert des tests qui vérifient précisément le contraire.
+    """
+    from donmarket.builder.remote import REMOTE_TOKEN_VAR, REMOTE_URL_VAR
+
+    for name in (CODE_VAR, *API_VARS, REMOTE_URL_VAR, REMOTE_TOKEN_VAR):
         monkeypatch.delenv(name, raising=False)
     return monkeypatch
 

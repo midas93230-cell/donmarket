@@ -30,6 +30,13 @@ from .attribution import (
     build_builder_config,
     load_attribution,
 )
+from .remote import (
+    RemoteAttribution,
+    RemoteAttributionUnavailable,
+    build_remote_builder_config,
+    load_remote_config,
+    remote_status,
+)
 from .codes import (
     BuilderCode,
     InvalidBuilderCode,
@@ -67,10 +74,13 @@ __all__ = [
     "InvalidBuilderCode",
     "LeaderboardEntry",
     "Projection",
+    "RemoteAttribution",
+    "RemoteAttributionUnavailable",
     "RevenueEstimate",
     "TradeSample",
     "attribution_status",
     "build_builder_config",
+    "build_remote_builder_config",
     "build_clob_client",
     "build_data_client",
     "build_estimate",
@@ -82,7 +92,9 @@ __all__ = [
     "infer_schedule",
     "is_valid_builder_code",
     "load_attribution",
+    "load_remote_config",
     "normalise_builder_code",
+    "remote_status",
     "platform_fee_usd",
     "published_max_bps",
     "rank_by_revenue",

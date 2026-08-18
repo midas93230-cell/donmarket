@@ -15,3 +15,13 @@ data/
 *.db
 *.sqlite3
 *.parquet
+
+# Signeur builder (Cloudflare Worker)
+#
+# node_modules porte les binaires workerd et esbuild : une centaine de mégaoctets
+# de dépendances qui n'ont rien à faire sur un dépôt public.
+node_modules/
+# .wrangler garde l'état local et le jeton OAuth Cloudflare.
+.wrangler/
+# .dev.vars est l'équivalent .env de wrangler : il porterait le secret builder.
+.dev.vars

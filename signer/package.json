@@ -1,0 +1,10 @@
+{
+  "name": "donmarket-builder-signer",
+  "private": true,
+  "type": "module",
+  "main": "worker.js",
+  "description": "Signeur d'en-tetes builder Polymarket pour DONmarket. Aucune dependance : le HMAC vient de WebCrypto, present dans le runtime Workers.",
+  "devDependencies": {
+    "wrangler": "^4.124.0"
+  }
+}

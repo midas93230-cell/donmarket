@@ -1,8 +1,13 @@
 # Devenir builder Polymarket — ce qui reste à faire à la main
 
-État au 2026-08-15. Le code de DONmarket est prêt (`donmarket/builder/`,
+État au 2026-08-17. Le code de DONmarket est prêt (`donmarket/builder/`,
 `python -m donmarket builder`). Ce qui suit ne peut PAS être fait en codant :
 il faut un compte connecté et une approbation humaine chez Polymarket.
+
+Avancement : étape 1 faite (code builder obtenu, attribution branchée sur le
+client CLOB), étape 2 envoyée le 2026-08-17, étape 3 soumise le 2026-08-17.
+Les deux dernières attendent une réponse humaine, annoncée « within a few
+business days ».
 
 ## Le fait qui commande tout
 
@@ -48,7 +53,7 @@ Un code mal recopié est signalé sur-le-champ. C'est le seul moment où l'erreu
 est rattrapable : côté serveur, un code malformé rend une page **vide** avec un
 HTTP 200, strictement indiscernable d'un compte à zéro légitime.
 
-### 2. Demander le palier « Verified » — sans lui, zéro monétisation
+### 2. Demander le palier « Verified » — pour le leaderboard, pas pour le droit de facturer
 
 Le palier par défaut est **Unverified**. Ce qu'il coûte réellement, relevé sur
 `docs.polymarket.com/programs/builders/tiers` le 2026-08-16 :
@@ -124,6 +129,13 @@ Formulaire sur `builders.polymarket.com` — dossier **distinct** du code builde
 pour les subventions (2,5 M$ annoncés) et la mise en avant sur le leaderboard.
 Champs : Product Name, Project Description, Website URL, Email, X Handle,
 Telegram Handle, Builder API key.
+
+Le formulaire délivre aussi un **badge de constructeur**, indépendamment de la
+décision de subvention : la visibilité est acquise même si la subvention est
+refusée. Piège mesuré : le jeton Cloudflare Turnstile **expire en 5 minutes** et
+regrise le bouton d'envoi — valider le captcha puis soumettre dans la foulée.
+L'aperçu de badge affiché à gauche est une illustration statique, il ne reflète
+jamais les champs saisis.
 
 Brouillon de description :
 

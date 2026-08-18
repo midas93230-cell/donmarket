@@ -1,0 +1,18 @@
+name = "donmarket-signer"
+main = "worker.js"
+compatibility_date = "2026-08-17"
+
+# Les quatre valeurs sensibles ne sont PAS déclarées ici : `wrangler.toml` est
+# versionné et public. Elles se posent en secrets, qui ne sont lisibles ni dans
+# le dépôt ni dans le tableau de bord une fois écrites :
+#
+#   wrangler secret put BUILDER_API_KEY
+#   wrangler secret put BUILDER_API_SECRET
+#   wrangler secret put BUILDER_API_PASSPHRASE
+#   wrangler secret put AUTH_TOKEN
+#
+# Une variable posée dans [vars] au lieu de `secret put` se retrouverait en clair
+# dans le dépôt : c'est la seule erreur de ce fichier qui coûte le compte builder.
+
+[observability]
+enabled = true
