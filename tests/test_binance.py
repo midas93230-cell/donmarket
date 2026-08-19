@@ -1045,3 +1045,94 @@ def test_la_conversion_ne_passe_jamais_par_un_flottant_binaire() -> None:
     qui perd des décimales sur des montants plus gros l'est."""
     assert to_base_units(0.07) == "70000000000000000"
     assert to_base_units(1.1) == "1100000000000000000"
+
+
+# --- Chemin LIMIT DIRECT ----------------------------------------------------
+#
+# MESURÉ le 2026-08-19 : `/trade/get-quote` REFUSE `orderType: LIMIT`, y
+# compris sans prix — ce n'est donc pas un encodage, c'est le type d'ordre.
+# Toutes les variantes de prix ont été essayées (18 déc., 6 déc., chaîne, bps,
+# centièmes, `limitPrice`) : même `-3026`. Et la technique du 404 sur 13 noms
+# de routes le confirme — il n'existe que `get-quote` et `place-order-bundle`.
+#
+# Reste une hypothèse : `place-order-bundle` exige `walletAddress`, pas
+# seulement `quoteId`. Il sait donc peut-être construire un ordre SANS devis.
+# C'est le seul chemin qui puisse ouvrir la porte teneur, et donc la seule
+# raison économique de négocier ici : sans lui, on ne peut que payer 1,8 % en
+# preneur au lieu d'encaisser 25 % du frais d'en face.
+
+
+def test_desarme_le_limit_direct_ne_part_jamais() -> None:
+    """Le chemin est NEUF et non validé : il doit être gardé comme les autres."""
+    appels: list[str] = []
+
+    async def scenario() -> None:
+        transport = _transport_avec_portefeuille(appels, {"data": {}})
+        async with BinancePredictionClient(
+            credentials=FAKE, transport=transport
+        ) as client:
+            trader = PredictionTrader(client=client, limits=LIMITES, armed=False)
+            ordre = PredictionOrder(
+                market_id=7, token_id="tok", order_type=LIMIT, price=0.5, size=4.0
+            )
+            with pytest.raises(RuntimeError):
+                await trader.place_limit_direct(ordre)
+
+    asyncio.run(scenario())
+    assert not any("place-order-bundle" in a for a in appels), appels
+
+
+def test_le_limit_direct_porte_les_parametres_mesures() -> None:
+    """`amountIn` en unités de base, et AUCUN `quoteId` : c'est tout l'objet du
+    chemin — il n'y a pas de devis à présenter."""
+    appels: list[str] = []
+
+    async def scenario() -> None:
+        transport = _transport_avec_portefeuille(
+            appels, {"data": {"orderId": "O-42"}}
+        )
+        async with BinancePredictionClient(
+            credentials=FAKE, transport=transport
+        ) as client:
+            trader = PredictionTrader(client=client, limits=LIMITES, armed=True)
+            ordre = PredictionOrder(
+                market_id=7, token_id="tok", order_type=LIMIT, price=0.5, size=4.0
+            )
+            return await trader.place_limit_direct(ordre)
+
+    recu = asyncio.run(scenario())
+    assert recu == {"data": {"orderId": "O-42"}}
+    envoi = [a for a in appels if "place-order-bundle" in a][0]
+    for attendu in (
+        "walletAddress=0x5e4d",
+        "vendor=PREDICT_FUN",
+        "marketId=7",
+        "tokenId=tok",
+        "side=BUY",
+        "orderType=LIMIT",
+        "price=0.5",
+        "amountIn=2000000000000000000",
+        "slippageBps=",
+    ):
+        assert attendu in envoi, f"{attendu} absent de {envoi}"
+    assert "quoteId" not in envoi, "un devis est envoyé alors qu'il n'y en a pas"
+
+
+def test_un_ordre_market_ne_passe_pas_par_le_chemin_limit() -> None:
+    """Garde-fou de type. Le MARKET a un devis qui chiffre son coût AVANT
+    l'engagement ; l'envoyer sans devis perdrait cette protection sans rien
+    gagner, puisque `get-quote` l'accepte parfaitement."""
+
+    async def scenario() -> None:
+        transport = _transport_avec_portefeuille([], {"data": {}})
+        async with BinancePredictionClient(
+            credentials=FAKE, transport=transport
+        ) as client:
+            trader = PredictionTrader(client=client, limits=LIMITES, armed=True)
+            ordre = PredictionOrder(
+                market_id=7, token_id="tok", order_type=MARKET, price=0.5, size=4.0
+            )
+            with pytest.raises(ValueError):
+                await trader.place_limit_direct(ordre)
+
+    asyncio.run(scenario())

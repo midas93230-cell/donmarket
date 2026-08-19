@@ -347,7 +347,7 @@ def test_une_panne_dapi_pendant_lobservation_ne_perd_pas_lordre() -> None:
     assert all(r.fill is None for r in releves)
 
 
-def test_desarmee_la_sonde_obtient_un_devis_et_ne_passe_rien() -> None:
+def test_desarmee_la_sonde_choisit_une_branche_et_ne_passe_rien() -> None:
     chemins: list[str] = []
 
     def handler(request: httpx.Request) -> httpx.Response:
@@ -416,8 +416,14 @@ def test_desarmee_la_sonde_obtient_un_devis_et_ne_passe_rien() -> None:
     resultat = asyncio.run(scenario())
     assert resultat.armed is False
     assert resultat.post is not None
-    assert resultat.quote is not None and resultat.quote.quote_id == "Q-9"
     assert resultat.order_id is None
+    # RÉÉCRIT le 2026-08-19. Ce test exigeait un devis en mode désarmé. C'était
+    # juste tant que la sonde passait par `get-quote` — mais la mesure a montré
+    # que `get-quote` REFUSE les LIMIT, y compris sans prix. Il n'y a donc plus
+    # de coût à chiffrer avant l'engagement, et prétendre le contraire ferait
+    # croire à une protection qui n'existe pas.
+    assert resultat.quote is None
+    assert resultat.problem and "get-quote refuse les LIMIT" in resultat.problem
     assert all("place-order-bundle" not in chemin for chemin in chemins)
 
 
@@ -699,3 +705,54 @@ _UN_CARNET = {
         "asks": [{"price": "0.25", "size": "50"}],
     }
 }
+
+
+# --- Sélection : le rebate dépend du PRIX, pas seulement du volume ----------
+
+
+def _post_factice(market_id: int, prix: float, volume: float) -> object:
+    """Un candidat minimal, tel que `select_post` en fabrique."""
+    from donmarket.binance.model import PredictionBook, PredictionLevel
+
+    return PredictionBook(
+        market_id=market_id,
+        bids=(PredictionLevel(price=prix - 0.01, size=100.0),),
+        asks=(PredictionLevel(price=prix + 0.01, size=100.0),),
+        token_id=f"t{market_id}",
+        raw={"outcome": "Up", "tokenId": f"t{market_id}"},
+    )
+
+
+def test_la_selection_prefere_un_prix_proche_de_la_moitie() -> None:
+    """Le rebate teneur vaut `0,25 × taux × min(p, 1−p)`.
+
+    À p = 0,04 il vaut donc 25 fois MOINS qu'à p = 0,50, à volume égal. Le
+    classement par volume seul a fait choisir « aliens exist before 2027 » à
+    0,04 le 2026-08-19 — le pire marché possible pour la stratégie, sur le
+    critère qui décide de tout le revenu.
+
+    Le volume reste un critère (il approche le flux qui viendra nous frapper),
+    mais il ne peut plus écraser un prix qui divise le gain par 25.
+    """
+    from donmarket.binance.model import PredictionMarket
+    from donmarket.binance.probe import select_post
+
+    lointain = PredictionMarket(
+        market_id=1, status="OPEN", end_time_ms=MAINTENANT_MS + 86_400_000,
+        volume_usdt=1_000_000.0, outcome_token_ids=("t1",),
+    )
+    central = PredictionMarket(
+        market_id=2, status="OPEN", end_time_ms=MAINTENANT_MS + 86_400_000,
+        volume_usdt=1_000.0, outcome_token_ids=("t2",),
+    )
+    carnets = {"t1": _post_factice(1, 0.04, 0), "t2": _post_factice(2, 0.50, 0)}
+
+    choisi, _rejets = select_post(
+        [lointain, central], carnets,
+        notional_usdt=2.0, now_ms=MAINTENANT_MS, minutes_needed=10,
+    )
+    assert choisi is not None
+    assert choisi.market.market_id == 2, (
+        "un marché à 0,04 avec 1000× le volume a été préféré à un marché à "
+        "0,50 : le classement ignore encore le prix, donc le rebate"
+    )

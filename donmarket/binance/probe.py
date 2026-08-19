@@ -38,7 +38,7 @@ import time
 from dataclasses import dataclass, field
 from typing import Any, Mapping, Sequence
 
-from ..execute.limits import ExecutionLimits
+from ..execute.limits import ExecutionLimits, gate
 from .api import BinancePredictionClient
 from .model import (
     BinanceApiError,
@@ -202,7 +202,23 @@ def select_post(
     if not candidats:
         return None, tuple(rejets)
 
-    candidats.sort(key=lambda c: (c.market.volume_usdt or 0.0), reverse=True)
+    # CLASSEMENT CORRIGÉ le 2026-08-19. Le tri par volume seul avait choisi un
+    # marché à p = 0,04 (« aliens exist before 2027 », bid = ask) — le pire
+    # possible, parce que le rebate teneur vaut `0,25 × taux × min(p, 1−p)` :
+    # à 0,04 il rapporte 25 fois moins qu'à 0,50, quel que soit le volume.
+    #
+    # Le gain attendu par part est donc le critère PREMIER, et le volume ne
+    # départage plus qu'à gain comparable — il approche le flux qui viendra
+    # nous frapper, ce qui reste utile mais ne rattrape jamais un facteur 25.
+    # Les deux sont gardés dans la clé plutôt que fondus dans un score
+    # arbitraire : un score inventerait une pondération que rien ne mesure.
+    def rebate_par_part(c: MakerPost) -> float:
+        return min(c.price, 1.0 - c.price)
+
+    candidats.sort(
+        key=lambda c: (round(rebate_par_part(c), 3), c.market.volume_usdt or 0.0),
+        reverse=True,
+    )
     return candidats[0], tuple(rejets)
 
 
@@ -438,30 +454,46 @@ async def run_probe(
         max_orders=1,
     )
     trader = PredictionTrader(client, limits=limites, armed=armed)
-    resultat = await trader.run([post.as_order()])
+    ordre = post.as_order()
 
-    if resultat.failures:
-        _, motif = resultat.failures[0]
+    # CHEMIN LIMIT DIRECT, câblé le 2026-08-19. `get-quote` refuse
+    # `orderType: LIMIT` (mesuré, y compris sans prix), donc la boucle
+    # devis → ordre est impraticable ici : il n'y a pas de devis à obtenir.
+    # On passe l'ordre directement à `place-order-bundle`, qui exige
+    # `walletAddress` et sait donc peut-être le construire seul.
+    #
+    # Le portier tourne QUAND MÊME, en amont : c'est la seule protection qui
+    # reste une fois le devis perdu.
+    refus = gate([ordre], limits=limites)
+    if refus.refused:
+        _, motif = refus.refused[0]
         return ProbeResult(armed=armed, post=post, rejects=rejets, problem=motif)
-    if not resultat.quotes:
+
+    if not armed:
         return ProbeResult(
-            armed=armed, post=post, rejects=rejets, problem="aucun devis obtenu"
+            armed=False,
+            post=post,
+            rejects=rejets,
+            problem=(
+                "DÉSARMÉE — et sur ce chemin il n'y a rien de plus à montrer : "
+                "get-quote refuse les LIMIT, donc aucun coût ne peut être "
+                "chiffré avant l'engagement. C'est --arm qui tranche"
+            ),
         )
 
-    devis = resultat.quotes[0]
-    if not armed:
-        return ProbeResult(armed=False, post=post, quote=devis, rejects=rejets)
-
-    if not resultat.placed:
+    try:
+        brut = await trader.place_limit_direct(
+            ordre, vendor=str(post.market.raw.get("vendor") or "") or None
+        )
+    except (BinanceApiError, BinanceSchemaError, ValueError) as exc:
         return ProbeResult(
             armed=True,
             post=post,
-            quote=devis,
             rejects=rejets,
-            problem="devis obtenu mais aucun ordre passé",
+            problem=f"LIMIT direct refusé : {exc}",
         )
 
-    brut = resultat.placed[0]
+    devis = None
     order_id = read_order_id(brut)
     if order_id is None:
         # L'ordre EST parti : on le retrouve par sa signature plutôt que

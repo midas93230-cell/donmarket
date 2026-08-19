@@ -268,6 +268,64 @@ class PredictionTrader:
         )
         return parse_quote(payload)
 
+    async def place_limit_direct(
+        self,
+        order: PredictionOrder,
+        *,
+        vendor: str | None = None,
+        slippage_bps: int = 1000,
+    ) -> Mapping[str, Any]:
+        """LIMIT posté SANS devis. Chemin non validé — lire avant d'armer.
+
+        MESURÉ le 2026-08-19 : `/trade/get-quote` refuse `orderType: LIMIT`, y
+        compris sans prix, donc ce n'est pas une question d'encodage mais de
+        type d'ordre. Et la technique du 404 sur treize noms de routes montre
+        qu'il n'existe aucune route LIMIT dédiée : seuls `get-quote` et
+        `place-order-bundle` répondent.
+
+        Reste que `place-order-bundle` exige `walletAddress` et pas seulement
+        `quoteId` — il sait donc peut-être construire un ordre de lui-même.
+        Cette méthode teste exactement cette hypothèse, et c'est le seul
+        chemin qui puisse ouvrir la porte TENEUR : sans elle, on ne peut que
+        payer 1,8 % en preneur au lieu d'encaisser 25 % du frais d'en face.
+
+        CE QU'ON PERD par rapport au chemin normal, et il faut le savoir avant
+        d'armer : le devis chiffrait le coût AVANT l'engagement. Ici il n'y a
+        rien à lire avant. Le plafond de `limits` reste la seule protection,
+        d'où le passage obligé par `gate()` en amont.
+
+        UN SEUL ESSAI, comme toute écriture : une requête perdue à l'aller est
+        indiscernable d'une réponse perdue au retour, et rejouer passerait
+        l'ordre deux fois. En cas de doute, `active_orders()` tranche.
+        """
+        if order.order_type != LIMIT:
+            raise ValueError(
+                f"place_limit_direct refuse un ordre {order.order_type} : le "
+                "MARKET a un devis qui chiffre son coût avant l'engagement, et "
+                "s'en priver ne gagnerait rien"
+            )
+        if not self.armed:
+            raise RuntimeError(
+                "place_limit_direct() appelé sur un trader désarmé — c'est un "
+                "défaut de programmation, pas une situation à rattraper"
+            )
+
+        params: dict[str, Any] = {
+            "walletAddress": await self.client.wallet_address(),  # type: ignore[attr-defined]
+            "vendor": vendor or DEFAULT_VENDOR,
+            "marketId": order.market_id,
+            "tokenId": order.token_id,
+            "side": order.side,
+            "orderType": LIMIT,
+            "price": order.price,
+            "amountIn": to_base_units(order.notional_usdt),
+            "slippageBps": slippage_bps,
+        }
+        payload = await self.client.post(  # type: ignore[attr-defined]
+            "/trade/place-order-bundle", params
+        )
+        return payload if isinstance(payload, Mapping) else {"raw": payload}
+
     async def place(self, order: PredictionOrder, quote: Quote) -> Mapping[str, Any]:
         """`POST /trade/place-order-bundle`. LE point où l'argent bouge.
 
