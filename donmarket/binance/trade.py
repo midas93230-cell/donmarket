@@ -372,6 +372,13 @@ class PredictionTrader:
                 # CINQUIEME marche. Deduit des soldes, jamais ecrit en dur :
                 # voir `funding_account_type`.
                 "accountType": await self.client.funding_account_type(),  # type: ignore[attr-defined]
+                # SIXIEME marche. Le devis porte deja le type d ordre, mais le
+                # bundle le redemande : on ne suppose pas qu il le retrouve.
+                "orderType": order.order_type,
+                # Presente en meme temps que `orderType` dans le payload du
+                # site web, au meme endroit. Ajoute d avance pour ne pas payer
+                # une septieme decouverte a trente minutes le tour.
+                **({"priceLimit": f"{order.price:.2f}"} if order.order_type == LIMIT else {}),
             },
         )
         return payload if isinstance(payload, Mapping) else {"raw": payload}
