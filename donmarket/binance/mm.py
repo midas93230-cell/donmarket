@@ -322,13 +322,30 @@ def read_inventory(payload: object) -> tuple[Inventory, str | None]:
 
 
 def reconcile(
-    voulus: Sequence[PredictionOrder], vivants: Sequence[LiveOrder]
+    voulus: Sequence[PredictionOrder],
+    vivants: Sequence[LiveOrder],
+    *,
+    nous: frozenset[str] | None = None,
 ) -> tuple[list[PredictionOrder], list[LiveOrder], list[LiveOrder]]:
     """Compare le voulu au vivant. Rend (à poser, à annuler, à garder).
 
     Un ordre déjà au bon prix est GARDÉ, pas rejoué : le réémettre perdrait sa
     place dans la file, et la place dans la file est précisément ce qui décide
     d'être rempli ou non. C'est le seul avantage d'un teneur qui arrive tôt.
+
+    `nous` DÉLIMITE CE QUE LA BOUCLE A LE DROIT DE TOUCHER : les identifiants
+    des ordres qu'elle a elle-même posés. Tout le reste est ÉTRANGER et n'est
+    ni annulé ni compté.
+
+    Ce paramètre corrige un défaut trouvé le 2026-08-19 après le premier tour
+    armé : la boucle traitait tout ordre ouvert comme le sien et annulait ce
+    qui n'était pas dans son plan. L'ordre posé à la main par le propriétaire
+    du compte a survécu trente tours uniquement grâce à un bug d'annulation.
+    Une machine n'a pas à défaire ce qu'un humain a décidé, et « je ne l'ai pas
+    reconnu » n'est pas une raison de supprimer.
+
+    `nous=None` conserve l'ancien comportement, réservé aux tests qui vérifient
+    la logique d'appariement elle-même.
     """
     par_cle = {o.key: o for o in vivants}
     a_poser: list[PredictionOrder] = []
@@ -344,8 +361,28 @@ def reconcile(
             continue
         a_poser.append(voulu)
 
-    a_annuler = [o for o in vivants if o.key not in utilises]
+    a_annuler = [
+        o
+        for o in vivants
+        if o.key not in utilises and (nous is None or o.order_id in nous)
+    ]
     return a_poser, a_annuler, a_garder
+
+
+def _lire_order_id(payload: object) -> str | None:
+    """Sort l'identifiant d'un ordre tout juste posé, quelle que soit l'enveloppe.
+
+    Sans lui, la boucle ne saura pas annuler ce qu'elle vient de poser : c'est
+    la seule information qui rend un ordre reprenable.
+    """
+    if not isinstance(payload, Mapping):
+        return None
+    for source in (payload, payload.get("data")):
+        if isinstance(source, Mapping):
+            valeur = source.get("orderId") or source.get("orderid")
+            if valeur:
+                return str(valeur)
+    return None
 
 
 async def run_market_maker(
@@ -399,6 +436,10 @@ async def run_market_maker(
     debut = now()
     limite_s = minutes * 60
     vivants: list[LiveOrder] = []
+    # Ce que NOUS avons posé. Tout ordre ouvert absent de cet ensemble a été
+    # posé par quelqu'un d'autre — le propriétaire du compte, depuis l'appli —
+    # et la boucle n'y touche pas.
+    a_nous: set[str] = set()
 
     try:
         while True:
@@ -438,7 +479,15 @@ async def run_market_maker(
                     max_markets=max_markets,
                 )
 
-            a_poser, a_annuler, a_garder = reconcile(voulus, vivants)
+            a_poser, a_annuler, a_garder = reconcile(
+                voulus, vivants, nous=frozenset(a_nous)
+            )
+            etrangers = [o for o in vivants if o.order_id not in a_nous]
+            if etrangers:
+                logger.info(
+                    "%d ordre(s) ouvert(s) ne viennent pas de cette boucle — "
+                    "laissés intacts", len(etrangers)
+                )
             rapport.kept = len(a_garder)
 
             refus = gate(a_poser, limits=limites)
@@ -458,8 +507,19 @@ async def run_market_maker(
                     continue
                 try:
                     devis = await trader.get_quote(ordre)
-                    await trader.place(ordre, devis)
+                    recu = await trader.place(ordre, devis)
                     rapport.placed += 1
+                    identifiant = _lire_order_id(recu)
+                    if identifiant:
+                        a_nous.add(identifiant)
+                    else:
+                        # On vient de poser un ordre dont on ne connaît pas
+                        # l'identifiant : on ne saura pas l'annuler. Le dire
+                        # vaut mieux que de le perdre de vue en silence.
+                        logger.error(
+                            "ordre posé sur %s mais identifiant illisible — "
+                            "il faudra l'annuler à la main", ordre.market_id
+                        )
                 except (BinanceApiError, BinanceSchemaError, ValueError) as exc:
                     logger.warning(
                         "ordre non passé sur %s : %s", ordre.market_id, exc
@@ -469,15 +529,25 @@ async def run_market_maker(
                 break
             await sleep(interval_s)
     finally:
-        if armed and vivants:
+        # Le nettoyage ne porte QUE sur nos ordres — annuler ceux d'autrui à
+        # l'arrêt serait le même défaut, au pire moment.
+        #
+        # On part de CE QU'ON A POSÉ, pas du dernier relevé : un ordre posé
+        # APRÈS la dernière lecture n'apparaît dans aucun relevé, et se basant
+        # sur eux le nettoyage le laissait vivant au carnet. C'est exactement
+        # le cas du dernier tour, donc le plus fréquent. Redemander l'annulation
+        # d'un ordre déjà rempli ou déjà annulé est sans danger : le serveur le
+        # refuse et on le journalise.
+        a_nettoyer = sorted(a_nous)
+        if armed and a_nettoyer:
             try:
-                await trader.batch_cancel([o.order_id for o in vivants])
-                rapport.cancelled += len(vivants)
+                await trader.batch_cancel(a_nettoyer)
+                rapport.cancelled += len(a_nettoyer)
             except (BinanceApiError, BinanceSchemaError) as exc:
                 logger.error(
                     "NETTOYAGE FINAL REFUSÉ (%s) — des ordres sont peut-être "
                     "ENCORE au carnet, à vérifier dans l'application", exc
                 )
-                rapport.left_open = tuple(o.order_id for o in vivants)
+                rapport.left_open = tuple(a_nettoyer)
 
     return rapport

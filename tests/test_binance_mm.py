@@ -403,18 +403,78 @@ def test_un_inventaire_illisible_fait_abstenir_la_boucle() -> None:
     assert rapport.placed == 0, "des ordres ont été planifiés sur un inventaire illisible"
 
 
-def test_armee_la_boucle_pose_puis_nettoie_a_larret() -> None:
+def test_armee_la_boucle_pose_puis_nettoie_ses_propres_ordres() -> None:
     """Un ordre laissé au carnet après l'arrêt est une position que plus
-    personne ne surveille."""
+    personne ne surveille — mais seuls les NÔTRES sont à nettoyer.
+
+    Le routeur devient volontairement dynamique : l'ordre que la boucle vient
+    de poser apparaît ensuite dans les ordres ouverts, comme en vrai. Sans ça
+    le test ne verrait jamais son propre ordre et ne prouverait rien.
+    """
     vus: list[str] = []
-    ouverts = [
-        {"orderId": "O-9", "marketId": 1, "tokenId": "t1",
-         "side": "BUY", "price": "0.42"}
-    ]
-    rapport = _lance(
-        _routeur(vus, positions={"positions": []}, ordres_ouverts=ouverts), armed=True
-    )
+    poses: list[str] = []
+
+    def handler(request):
+        chemin = request.url.path
+        vus.append(chemin)
+        if chemin.endswith("/wallet/list"):
+            return httpx.Response(200, json=PORTEFEUILLE)
+        if chemin.endswith("/market/list"):
+            return httpx.Response(200, json=UNIVERS)
+        if chemin.endswith("/order-book"):
+            return httpx.Response(200, json=CARNET)
+        if chemin.endswith("/position/list"):
+            return httpx.Response(200, json={"positions": []})
+        if chemin.endswith("/order/list"):
+            lignes = [
+                {"orderId": "O-ETRANGER", "marketId": 99, "tokenId": "tX",
+                 "side": "BUY", "price": "0.70"}
+            ] + [
+                {"orderId": oid, "marketId": 1, "tokenId": "t1",
+                 "side": "BUY", "price": "0.50"}
+                for oid in poses
+            ]
+            return httpx.Response(200, json={"orders": lignes})
+        if chemin.endswith("/trade/get-quote"):
+            return httpx.Response(200, json={"data": {"quoteId": "Q"}})
+        if chemin.endswith("/trade/place-order-bundle"):
+            poses.append("O-1")
+            return httpx.Response(200, json={"data": {"orderId": "O-1"}})
+        if chemin.endswith("/trade/batch-cancel"):
+            return httpx.Response(200, json={"data": {}})
+        raise AssertionError(f"route inattendue : {chemin}")
+
+    rapport = _lance(httpx.MockTransport(handler), armed=True)
+
     assert rapport.armed is True
     assert any("place-order-bundle" in c for c in vus), "aucun ordre posé"
-    assert any("batch-cancel" in c for c in vus), "aucun nettoyage"
-    assert rapport.cancelled > 0
+    annulations = [c for c in vus if "batch-cancel" in c]
+    assert annulations, "aucun nettoyage de nos propres ordres"
+    assert "O-ETRANGER" not in rapport.left_open
+
+
+def test_un_ordre_etranger_nest_jamais_annule() -> None:
+    """ANCRAGE DE SÉCURITÉ, et il vient d'une vraie alerte.
+
+    Le 2026-08-19, la boucle a tenté trente fois d'annuler l'ordre que le
+    propriétaire du compte avait posé À LA MAIN dans l'application. Elle ne l'a
+    pas fait uniquement parce que `batch-cancel` était cassé par ailleurs — un
+    bug qui protégeait d'un autre bug, et qui venait d'être corrigé.
+
+    Une machine n'a pas à défaire ce qu'un humain a décidé, et « je ne l'ai pas
+    reconnu » n'est pas une raison de supprimer.
+    """
+    etranger = _vivant(0.70, token="tX", market=99)
+    a_nous = _vivant(0.42, token="t1", market=1)
+
+    _poser, a_annuler, _garder = reconcile(
+        [], [etranger, a_nous], nous=frozenset({a_nous.order_id})
+    )
+    assert [o.order_id for o in a_annuler] == [a_nous.order_id]
+
+
+def test_sans_perimetre_lancien_comportement_est_conserve() -> None:
+    """`nous=None` reste réservé aux tests d'appariement : la boucle, elle,
+    passe toujours son périmètre."""
+    _poser, a_annuler, _garder = reconcile([], [_vivant(0.50)])
+    assert len(a_annuler) == 1
