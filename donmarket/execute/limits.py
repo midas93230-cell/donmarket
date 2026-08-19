@@ -93,6 +93,26 @@ def order_cost_usd(order) -> float:
     return max(float(order.size), 0.0) * max(float(order.price), 0.0)
 
 
+def market_key(order) -> str:
+    """Ce qui identifie le MARCHÉ d'un ordre, quelle que soit la place.
+
+    Corrigé le 2026-08-19 : le portier groupait sur `condition_id`, qui
+    n'existe que sur les ordres Polymarket. Les ordres Binance
+    (`PredictionOrder`, qui porte `market_id`) tombaient donc tous dans la même
+    clé vide, et `max_per_market_usd` s'appliquait à l'ENSEMBLE au lieu de
+    chaque marché — un plafond de concentration qui ne concentrait rien, sans
+    aucun signe visible puisqu'il refusait plutôt qu'il n'autorisait.
+
+    L'ordre des essais compte : `condition_id` reste prioritaire pour ne rien
+    changer au comportement Polymarket déjà mesuré.
+    """
+    for nom in ("condition_id", "market_id"):
+        valeur = getattr(order, nom, None)
+        if valeur not in (None, ""):
+            return f"{nom}:{valeur}"
+    return ""
+
+
 def gate(
     orders: Sequence[object],
     *,
@@ -118,7 +138,7 @@ def gate(
 
     for order in orders:
         cost = order_cost_usd(order)
-        market = getattr(order, "condition_id", "")
+        market = market_key(order)
 
         if len(allowed) >= limits.max_orders:
             refused.append((order, f"plafond de {limits.max_orders} ordres atteint"))

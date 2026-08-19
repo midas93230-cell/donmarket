@@ -406,7 +406,13 @@ def parse_market(payload: Any) -> PredictionMarket:
         market_id=market_id,
         title=_opt_str(payload, "title", "topic", "question", "name"),
         category=_opt_str(payload, "categorySlug", "category", "categoryName"),
-        status=_opt_str(payload, "status", "tradingStatus", "marketStatus"),
+        # ORDRE CORRIGÉ le 2026-08-19, mesuré sur 241 marchés : un marché porte
+        # les DEUX champs. `status` vaut `REGISTERED` (état de cycle de vie,
+        # identique sur les 241) tandis que `tradingStatus` vaut `OPEN` — c'est
+        # ce second qui dit si l'on peut négocier. Lire `status` en premier
+        # faisait rejeter TOUT l'univers comme « non ouvert », et le rejet
+        # ressemblait à un marché fermé au lieu d'un champ mal choisi.
+        status=_opt_str(payload, "tradingStatus", "status", "marketStatus"),
         # `endDate` est le nom RÉEL (mesuré) ; les autres restent essayés au cas
         # où une route voisine emploierait la convention SAPI habituelle.
         end_time_ms=_opt_int(

@@ -1035,6 +1035,138 @@ async def _run_binance(args: argparse.Namespace) -> int:
     return 0
 
 
+async def _run_binance_fill(args: argparse.Namespace) -> int:
+    """Sonde de remplissage teneur — le terme manquant depuis le 2026-08-09.
+
+    Le rapport dit d'abord ce qui a été DÉCIDÉ (quel marché, quel prix, et
+    pourquoi celui-là), ensuite ce qui a été MESURÉ. L'ordre inverse laisserait
+    croire que le chiffre de remplissage vaut pour la place entière, alors qu'il
+    vaut pour une branche, un prix et un moment.
+    """
+    from .binance.api import BinancePredictionClient
+    from .binance.model import BinanceApiError, BinanceSchemaError
+    from .binance.probe import run_probe
+
+    print(SEPARATOR)
+    print("BINANCE — SONDE DE REMPLISSAGE TENEUR")
+    print(SEPARATOR)
+
+    if args.notional <= 0:
+        print("\n✗ --notional doit être strictement positif.")
+        return 2
+
+    client = BinancePredictionClient()
+    if not client.is_readable:
+        manquantes = ", ".join(client.missing_credentials)
+        print(f"\n⚠ Aucune lecture possible : {manquantes} absente(s).")
+        print("Voir `donmarket binance` pour la marche à suivre complète.")
+        return 1
+
+    if args.arm:
+        print(
+            f"\n⚠ ARMÉE — un ordre LIMIT de {args.notional:.2f} USDT va être "
+            "réellement passé, avec de l'argent réel.\n"
+            f"  Observation {args.minutes} min, relevé toutes les "
+            f"{args.interval} s, reliquat annulé à la fin."
+        )
+    else:
+        print(
+            "\nDÉSARMÉE — la sonde ira jusqu'au devis et s'arrêtera là.\n"
+            "  Ajouter --arm pour passer réellement l'ordre."
+        )
+
+    try:
+        async with client:
+            solde = await client.payment_option_balances()
+            resultat = await run_probe(
+                client,
+                notional_usdt=args.notional,
+                minutes=args.minutes,
+                interval_s=args.interval,
+                armed=args.arm,
+                max_markets=args.max_markets,
+            )
+    except (BinanceApiError, BinanceSchemaError) as exc:
+        print(f"\n✗ {exc}")
+        return 1
+
+    for ligne in solde:
+        if str(ligne.get("accountType")) == "CeDeFi":
+            print(
+                f"\nSolde du portefeuille de prédiction : "
+                f"{ligne.get('availableBalanceDisplay')} USDT"
+            )
+
+    if resultat.post is None:
+        print(f"\n✗ {resultat.problem}")
+        for market_id, motif in resultat.rejects[:12]:
+            print(f"    marché {market_id} : {motif}")
+        if len(resultat.rejects) > 12:
+            print(f"    … et {len(resultat.rejects) - 12} autres")
+        return 1
+
+    print("\nDÉCISION")
+    print(f"  {resultat.post.description}")
+    print(f"  titre : {resultat.post.market.title or '(non lu)'}")
+    print(f"  écartés : {len(resultat.rejects)} branche(s)/marché(s)")
+
+    if resultat.quote is not None:
+        devis = resultat.quote
+        print("\nDEVIS (lecture, n'engage rien)")
+        print(f"  quoteId  : {devis.quote_id}")
+        if devis.size is not None:
+            print(f"  parts    : {devis.size}")
+        if devis.fee_usdt is not None:
+            # Mesuré le 2026-08-18 : `feeAmount` est libellé en PARTS, pas en
+            # USDT. Le dire ici évite de relire ce nombre comme un coût en
+            # dollars, ce qui le sous-estimerait ou le surestimerait selon le prix.
+            print(f"  frais    : {devis.fee_usdt} (en PARTS, pas en USDT)")
+
+    if resultat.problem:
+        print(f"\n⚠ {resultat.problem}")
+
+    if not resultat.armed:
+        print(
+            "\nAucun ordre n'a été passé. Le taux de remplissage reste NON "
+            "MESURÉ : c'est --arm qui le mesure, rien d'autre."
+        )
+        return 0
+
+    print(f"\nMESURE — ordre {resultat.order_id}")
+    for snap in resultat.snapshots:
+        print(snap.line)
+
+    final = resultat.final_fill
+    if final is None:
+        print("\n⚠ Aucun relevé exploitable : le remplissage reste inconnu.")
+    else:
+        delai = resultat.time_to_first_fill_s
+        print(
+            f"\nRÉSULTAT : {final.status} — {final.fraction * 100:.0f} % rempli "
+            f"({final.filled_shares:.2f} parts, {final.filled_usdt:.2f} USDT)"
+        )
+        print(
+            f"  délai avant premier remplissage : "
+            f"{f'{delai:.0f} s' if delai is not None else 'jamais rempli'}"
+        )
+    if resultat.cancelled:
+        print("  reliquat ANNULÉ — rien ne reste au carnet.")
+    elif final is not None and final.is_terminal:
+        print("  état terminal atteint : rien à annuler.")
+    else:
+        print(
+            "  ⚠ reliquat NON annulé — vérifier `donmarket binance` et "
+            "l'application Binance."
+        )
+
+    print(
+        "\nCe chiffre vaut pour UNE branche, UN prix et UN moment. Un seul "
+        "ordre ne fait pas un taux de remplissage : il dit seulement si le "
+        "chemin teneur fonctionne."
+    )
+    return 0
+
+
 def build_parser() -> argparse.ArgumentParser:
     parser = argparse.ArgumentParser(
         prog="donmarket", description="Lecture et analyse de tout Polymarket."
@@ -1310,6 +1442,42 @@ def build_parser() -> argparse.ArgumentParser:
         help="marchés demandés par page (défaut 20)",
     )
     binance.set_defaults(handler=lambda args: asyncio.run(_run_binance(args)))
+
+    fill = subparsers.add_parser(
+        "binance-fill",
+        help="sonde de remplissage teneur : un ordre LIMIT, et on mesure s'il se remplit",
+    )
+    fill.add_argument(
+        "--notional",
+        type=float,
+        default=2.0,
+        help="montant de l'ordre en USDT (défaut 2,0)",
+    )
+    fill.add_argument(
+        "--minutes",
+        type=int,
+        default=10,
+        help="durée d'observation avant annulation du reliquat (défaut 10)",
+    )
+    fill.add_argument(
+        "--interval",
+        type=int,
+        default=30,
+        help="secondes entre deux relevés (défaut 30)",
+    )
+    fill.add_argument(
+        "--max-markets",
+        type=int,
+        default=40,
+        help="marchés lus pour choisir la branche (défaut 40)",
+    )
+    fill.add_argument(
+        "--arm",
+        action="store_true",
+        help="PASSE UN VRAI ORDRE avec de l'argent réel. Sans ce drapeau, "
+        "la sonde va jusqu'au devis et s'arrête.",
+    )
+    fill.set_defaults(handler=lambda args: asyncio.run(_run_binance_fill(args)))
 
     builder = subparsers.add_parser(
         "builder",
