@@ -262,7 +262,12 @@ class PredictionTrader:
             "slippageBps": slippage_bps,
         }
         if order.order_type == LIMIT:
-            params["price"] = order.price
+            # `priceLimit`, PAS `price`. Relevé le 2026-08-19 dans le payload
+            # du site web de Binance. `price` et `limitPrice` rendent tous deux
+            # `-3026 Your input param is invalid` — un refus qui ressemble à un
+            # refus de type d'ordre, et qui a fait conclure à tort que le LIMIT
+            # n'existait pas sur cette place. C'était un nom de champ.
+            params["priceLimit"] = f"{order.price:.2f}"
         payload = await self.client.post(  # type: ignore[attr-defined]
             "/trade/get-quote", params
         )
@@ -343,8 +348,16 @@ class PredictionTrader:
                 "place() appelé sur un trader désarmé — c'est un défaut de "
                 "programmation, pas une situation à rattraper"
             )
+        # Les TROIS champs sont exigés, découverts en escalier le 2026-08-19 :
+        # `walletAddress`, puis `walletId`, puis `quoteId`. Le payload du site
+        # web les porte tous les trois, ce qui a confirmé la liste.
         payload = await self.client.post(  # type: ignore[attr-defined]
-            "/trade/place-order-bundle", {"quoteId": quote.quote_id}
+            "/trade/place-order-bundle",
+            {
+                "walletAddress": await self.client.wallet_address(),  # type: ignore[attr-defined]
+                "walletId": await self.client.wallet_id(),  # type: ignore[attr-defined]
+                "quoteId": quote.quote_id,
+            },
         )
         return payload if isinstance(payload, Mapping) else {"raw": payload}
 

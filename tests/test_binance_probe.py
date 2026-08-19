@@ -349,7 +349,7 @@ def test_une_panne_dapi_pendant_lobservation_ne_perd_pas_lordre() -> None:
     assert all(r.fill is None for r in releves)
 
 
-def test_desarmee_la_sonde_choisit_une_branche_et_ne_passe_rien() -> None:
+def test_desarmee_la_sonde_obtient_un_devis_et_ne_passe_rien() -> None:
     chemins: list[str] = []
 
     def handler(request: httpx.Request) -> httpx.Response:
@@ -419,13 +419,13 @@ def test_desarmee_la_sonde_choisit_une_branche_et_ne_passe_rien() -> None:
     assert resultat.armed is False
     assert resultat.post is not None
     assert resultat.order_id is None
-    # RÉÉCRIT le 2026-08-19. Ce test exigeait un devis en mode désarmé. C'était
-    # juste tant que la sonde passait par `get-quote` — mais la mesure a montré
-    # que `get-quote` REFUSE les LIMIT, y compris sans prix. Il n'y a donc plus
-    # de coût à chiffrer avant l'engagement, et prétendre le contraire ferait
-    # croire à une protection qui n'existe pas.
-    assert resultat.quote is None
-    assert resultat.problem and "get-quote refuse les LIMIT" in resultat.problem
+    # RÉTABLI le 2026-08-19 (soir). Ce test avait été réécrit dans la journée
+    # sur la conclusion — fausse — que `get-quote` refusait les LIMIT. Le refus
+    # venait du nom du champ de prix : `priceLimit` et non `price`. Le devis
+    # existe donc bien en mode désarmé, et c'est lui qui chiffre le coût avant
+    # tout engagement.
+    assert resultat.quote is not None and resultat.quote.quote_id == 'Q-9'
+    assert resultat.problem is None
     assert all("place-order-bundle" not in chemin for chemin in chemins)
 
 

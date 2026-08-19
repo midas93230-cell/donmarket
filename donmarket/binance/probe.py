@@ -456,44 +456,31 @@ async def run_probe(
     trader = PredictionTrader(client, limits=limites, armed=armed)
     ordre = post.as_order()
 
-    # CHEMIN LIMIT DIRECT, câblé le 2026-08-19. `get-quote` refuse
-    # `orderType: LIMIT` (mesuré, y compris sans prix), donc la boucle
-    # devis → ordre est impraticable ici : il n'y a pas de devis à obtenir.
-    # On passe l'ordre directement à `place-order-bundle`, qui exige
-    # `walletAddress` et sait donc peut-être le construire seul.
-    #
-    # Le portier tourne QUAND MÊME, en amont : c'est la seule protection qui
-    # reste une fois le devis perdu.
-    refus = gate([ordre], limits=limites)
-    if refus.refused:
-        _, motif = refus.refused[0]
+    # RETOUR AU CHEMIN NORMAL, 2026-08-19 (soir). Le devis LIMIT fonctionne
+    # depuis qu'on envoie `priceLimit` au lieu de `price` : la boucle
+    # devis → ordre est donc de nouveau praticable, et elle est meilleure que
+    # le chemin direct puisqu'elle chiffre le coût AVANT l'engagement.
+    resultat = await trader.run([ordre])
+
+    if resultat.failures:
+        _, motif = resultat.failures[0]
         return ProbeResult(armed=armed, post=post, rejects=rejets, problem=motif)
+    if not resultat.quotes:
+        return ProbeResult(
+            armed=armed, post=post, rejects=rejets, problem="aucun devis obtenu"
+        )
 
+    devis = resultat.quotes[0]
     if not armed:
+        return ProbeResult(armed=False, post=post, quote=devis, rejects=rejets)
+
+    if not resultat.placed:
         return ProbeResult(
-            armed=False,
-            post=post,
-            rejects=rejets,
-            problem=(
-                "DÉSARMÉE — et sur ce chemin il n'y a rien de plus à montrer : "
-                "get-quote refuse les LIMIT, donc aucun coût ne peut être "
-                "chiffré avant l'engagement. C'est --arm qui tranche"
-            ),
+            armed=True, post=post, quote=devis, rejects=rejets,
+            problem="devis obtenu mais aucun ordre passé",
         )
 
-    try:
-        brut = await trader.place_limit_direct(
-            ordre, vendor=str(post.market.raw.get("vendor") or "") or None
-        )
-    except (BinanceApiError, BinanceSchemaError, ValueError) as exc:
-        return ProbeResult(
-            armed=True,
-            post=post,
-            rejects=rejets,
-            problem=f"LIMIT direct refusé : {exc}",
-        )
-
-    devis = None
+    brut = resultat.placed[0]
     order_id = read_order_id(brut)
     if order_id is None:
         # L'ordre EST parti : on le retrouve par sa signature plutôt que

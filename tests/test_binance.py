@@ -1180,3 +1180,64 @@ def test_le_wallet_id_nest_lu_quune_fois_comme_ladresse() -> None:
 
     asyncio.run(scenario())
     assert len([a for a in appels if "wallet/list" in a]) == 1
+
+
+# --- `priceLimit` : le champ qui ouvre la porte teneur ----------------------
+#
+# MESURÉ le 2026-08-19, en lisant le payload que le SITE WEB de Binance envoie
+# quand on pose un ordre limite à la main. Le prix d'un LIMIT ne s'appelle ni
+# `price` ni `limitPrice` — les deux essayés et refusés — mais **`priceLimit`**.
+#
+# Avec ce seul nom, `/trade/get-quote` accepte `orderType: LIMIT` et rend un
+# devis. Le refus n'a jamais été un refus de type d'ordre : c'était un nom de
+# champ. Trente et une routes cherchées pour un mot.
+#
+# ET LE DEVIS DIT L'ESSENTIEL : `feeRateBps: 0` et `feeAmount: "0"` sur un
+# LIMIT, contre 180 bps sur un MARKET. C'est toute l'économie de la stratégie.
+
+
+def test_un_limit_envoie_pricelimit_et_jamais_price() -> None:
+    """`price` sur un LIMIT rend `-3026 input param is invalid` (mesuré).
+
+    Ce test est le gardien du nom : le jour où quelqu'un « harmonise » les
+    champs en renommant `priceLimit` en `price`, la porte teneur se referme et
+    l'erreur ne dira pas pourquoi.
+    """
+    appels: list[str] = []
+
+    async def scenario() -> None:
+        transport = _transport_avec_portefeuille(appels, {"data": {"quoteId": "Q"}})
+        async with BinancePredictionClient(
+            credentials=FAKE, transport=transport
+        ) as client:
+            trader = PredictionTrader(client=client, limits=LIMITES, armed=False)
+            ordre = PredictionOrder(
+                market_id=7, token_id="tok", order_type=LIMIT, price=0.39, size=5.0
+            )
+            await trader.get_quote(ordre)
+
+    asyncio.run(scenario())
+    envoi = [a for a in appels if "get-quote" in a][0]
+    assert "priceLimit=0.39" in envoi, envoi
+    assert "&price=" not in envoi, f"`price` envoyé sur un LIMIT : {envoi}"
+
+
+def test_un_market_nenvoie_pas_de_pricelimit() -> None:
+    """Un ordre au marché n'a pas de prix limite : en envoyer un serait une
+    contradiction, et le serveur a déjà montré qu'il refuse les mélanges."""
+    appels: list[str] = []
+
+    async def scenario() -> None:
+        transport = _transport_avec_portefeuille(appels, {"data": {"quoteId": "Q"}})
+        async with BinancePredictionClient(
+            credentials=FAKE, transport=transport
+        ) as client:
+            trader = PredictionTrader(client=client, limits=LIMITES, armed=False)
+            ordre = PredictionOrder(
+                market_id=7, token_id="tok", order_type=MARKET, price=0.5, size=4.0
+            )
+            await trader.get_quote(ordre)
+
+    asyncio.run(scenario())
+    envoi = [a for a in appels if "get-quote" in a][0]
+    assert "priceLimit" not in envoi, envoi
