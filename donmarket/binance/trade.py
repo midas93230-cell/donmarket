@@ -365,17 +365,16 @@ class PredictionTrader:
                 "walletAddress": await self.client.wallet_address(),  # type: ignore[attr-defined]
                 "walletId": await self.client.wallet_id(),  # type: ignore[attr-defined]
                 "quoteId": quote.quote_id,
-                # HUIT marches gravies une par une, chacune coutant un tour de
-                # boucle parce qu un -3026 ne nomme jamais qu un parametre.
-                # Le motif est desormais clair : le bundle veut la MEME
-                # description d ordre que le devis, plus ce qui lui est propre.
-                # On envoie donc tout d un coup au lieu de la decouvrir champ
-                # par champ.
-                "vendor": vendor or DEFAULT_VENDOR,
-                "marketId": order.market_id,
-                "tokenId": order.token_id,
-                "side": order.side,
-                "amountIn": to_base_units(order.notional_usdt),
+                # CE QUE LE SERVEUR A REELLEMENT RECLAME, dans l ordre exact
+                # de ses refus successifs : walletAddress, walletId, quoteId,
+                # timeInForce, accountType, orderType, slippageBps.
+                #
+                # RIEN DE PLUS. Avoir ajoute vendor, marketId, tokenId, side et
+                # amountIn -- par analogie avec le devis -- a fait basculer le
+                # refus de "parametre manquant" a "input param is invalid".
+                # Le bundle n a pas besoin de redecrire l ordre : le quoteId le
+                # designe deja. Ce qu il redemande, ce sont les choix
+                # d execution que le devis ne portait pas.
                 "slippageBps": slippage_bps,
                 # QUATRIEME marche de l'escalier, decouverte au premier tour
                 # arme du 2026-08-19 : sans `timeInForce`, -3026. GTC est le
