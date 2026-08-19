@@ -1136,3 +1136,47 @@ def test_un_ordre_market_ne_passe_pas_par_le_chemin_limit() -> None:
                 await trader.place_limit_direct(ordre)
 
     asyncio.run(scenario())
+
+
+def test_le_limit_direct_porte_aussi_le_wallet_id() -> None:
+    """MESURÉ le 2026-08-19, ordre armé à l'appui : `place-order-bundle`
+    ACCEPTE `orderType: LIMIT` — il réclamait simplement `walletId` en plus.
+
+    C'est le fait qui débloque toute la stratégie : le chemin teneur existe,
+    il n'était pas atteignable par `get-quote`. Et `walletId` n'est pas
+    l'adresse : ce sont deux champs distincts de `/wallet/list`, et les
+    confondre rend le même `-3026` qu'un champ absent.
+    """
+    appels: list[str] = []
+
+    async def scenario() -> None:
+        transport = _transport_avec_portefeuille(appels, {"data": {"orderId": "O-7"}})
+        async with BinancePredictionClient(
+            credentials=FAKE, transport=transport
+        ) as client:
+            trader = PredictionTrader(client=client, limits=LIMITES, armed=True)
+            ordre = PredictionOrder(
+                market_id=7, token_id="tok", order_type=LIMIT, price=0.5, size=4.0
+            )
+            await trader.place_limit_direct(ordre)
+
+    asyncio.run(scenario())
+    envoi = [a for a in appels if "place-order-bundle" in a][0]
+    assert "walletId=ad424a7a2e50401ca34b9fefeb0108b9" in envoi, envoi
+    assert "walletAddress=0x5e4d" in envoi, "l'adresse reste exigée en plus de l'id"
+
+
+def test_le_wallet_id_nest_lu_quune_fois_comme_ladresse() -> None:
+    appels: list[str] = []
+
+    async def scenario() -> None:
+        transport = _transport_avec_portefeuille(appels, {"data": {}})
+        async with BinancePredictionClient(
+            credentials=FAKE, transport=transport
+        ) as client:
+            assert await client.wallet_id() == "ad424a7a2e50401ca34b9fefeb0108b9"
+            await client.wallet_address()
+            await client.wallet_id()
+
+    asyncio.run(scenario())
+    assert len([a for a in appels if "wallet/list" in a]) == 1

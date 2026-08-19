@@ -246,7 +246,9 @@ def _client(handler) -> BinancePredictionClient:
     )
 
 
-WALLET = {"data": [{"walletAddress": "0xabc", "chainId": "56"}]}
+# `walletId` ajouté le 2026-08-19 : `place-order-bundle` l'exige en plus de
+# l'adresse, et sans lui la sonde ne peut plus poser d'ordre du tout.
+WALLET = {"data": [{"walletAddress": "0xabc", "walletId": "w-1", "chainId": "56"}]}
 
 
 def test_lobservation_sarrete_des_que_letat_est_terminal() -> None:

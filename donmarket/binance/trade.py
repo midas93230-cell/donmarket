@@ -312,6 +312,10 @@ class PredictionTrader:
 
         params: dict[str, Any] = {
             "walletAddress": await self.client.wallet_address(),  # type: ignore[attr-defined]
+            # DEUX champs distincts, mesuré le 2026-08-19 : l'ordre armé a
+            # révélé que `place-order-bundle` accepte le LIMIT et réclamait
+            # `walletId` en plus de l'adresse.
+            "walletId": await self.client.wallet_id(),  # type: ignore[attr-defined]
             "vendor": vendor or DEFAULT_VENDOR,
             "marketId": order.market_id,
             "tokenId": order.token_id,

@@ -139,6 +139,10 @@ class BinancePredictionClient:
         # Adresse du portefeuille de prédiction. Lue une fois, gardée : elle ne
         # change pas en cours de session, et cinq routes l'exigent.
         self._wallet_address: str | None = None
+        # `walletId` est un champ DISTINCT de `walletAddress` dans
+        # /wallet/list, et `place-order-bundle` exige les DEUX. Les confondre
+        # rend exactement le même -3026 qu'un champ absent.
+        self._wallet_id: str | None = None
 
     @property
     def is_readable(self) -> bool:
@@ -596,7 +600,33 @@ class BinancePredictionClient:
                 adresses[0][:10],
             )
         self._wallet_address = adresses[0]
+        premier = next(
+            w for w in wallets if str(w.get("walletAddress") or "").strip()
+        )
+        identifiant = str(premier.get("walletId") or "").strip()
+        self._wallet_id = identifiant or None
         return self._wallet_address
+
+    async def wallet_id(self) -> str:
+        """L'identifiant du portefeuille — exigé par `place-order-bundle`.
+
+        MESURÉ le 2026-08-19 : `place-order-bundle` accepte `orderType: LIMIT`
+        et réclamait seulement ce champ de plus. C'est ce qui a montré que le
+        chemin teneur existe, là où `get-quote` refusait le LIMIT tout court.
+
+        Lu par le même appel que l'adresse : les deux vivent dans la même ligne
+        de `/wallet/list`, et deux allers-retours pour une seule réponse serait
+        du gaspillage sur un chemin déjà lent.
+        """
+        if self._wallet_id is None:
+            await self.wallet_address()
+        if not self._wallet_id:
+            raise BinanceApiError(
+                "portefeuille de prédiction sans `walletId` — "
+                "`place-order-bundle` l'exige et rien ne le remplace",
+                path="/wallet/list",
+            )
+        return self._wallet_id
 
     async def portfolio(self) -> Mapping[str, Any]:
         """`GET /pnl/portfolio` — vue d'ensemble : positions, PnL agrégé."""
