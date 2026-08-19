@@ -260,6 +260,10 @@ def test_lobservation_sarrete_des_que_letat_est_terminal() -> None:
         appels.append(request.url.path)
         if request.url.path.endswith("/wallet/list"):
             return httpx.Response(200, json=WALLET)
+        # Les ordres designent leur compte de paiement depuis le
+        # 2026-08-19 : place-order-bundle exige accountType.
+        if request.url.path.endswith("/balance/payment-options"):
+            return httpx.Response(200, json={"items": [{"accountType": "CeDeFi", "availableBalanceDisplay": "8.73", "enabled": True}]})
         if request.url.path.endswith("/order/list"):
             return httpx.Response(
                 200,
@@ -318,6 +322,10 @@ def test_une_panne_dapi_pendant_lobservation_ne_perd_pas_lordre() -> None:
     def handler(request: httpx.Request) -> httpx.Response:
         if request.url.path.endswith("/wallet/list"):
             return httpx.Response(200, json=WALLET)
+        # Les ordres designent leur compte de paiement depuis le
+        # 2026-08-19 : place-order-bundle exige accountType.
+        if request.url.path.endswith("/balance/payment-options"):
+            return httpx.Response(200, json={"items": [{"accountType": "CeDeFi", "availableBalanceDisplay": "8.73", "enabled": True}]})
         return httpx.Response(200, json={"code": "-3026", "msg": "boom"})
 
     async def faux_sleep(duree: float) -> None:
@@ -356,6 +364,10 @@ def test_desarmee_la_sonde_obtient_un_devis_et_ne_passe_rien() -> None:
         chemins.append(request.url.path)
         if request.url.path.endswith("/wallet/list"):
             return httpx.Response(200, json=WALLET)
+        # Les ordres designent leur compte de paiement depuis le
+        # 2026-08-19 : place-order-bundle exige accountType.
+        if request.url.path.endswith("/balance/payment-options"):
+            return httpx.Response(200, json={"items": [{"accountType": "CeDeFi", "availableBalanceDisplay": "8.73", "enabled": True}]})
         if request.url.path.endswith("/market/list"):
             # Enveloppe RÉELLE : `marketTopics` au premier niveau, pas sous
             # `data` (mesuré le 2026-08-18).
@@ -517,6 +529,10 @@ def test_une_panne_reseau_pendant_lobservation_annule_quand_meme_lordre() -> Non
         chemins.append(chemin)
         if chemin.endswith("/wallet/list"):
             return httpx.Response(200, json=WALLET)
+        # Les ordres designent leur compte de paiement depuis le
+        # 2026-08-19 : place-order-bundle exige accountType.
+        if request.url.path.endswith("/balance/payment-options"):
+            return httpx.Response(200, json={"items": [{"accountType": "CeDeFi", "availableBalanceDisplay": "8.73", "enabled": True}]})
         if chemin.endswith("/market/list"):
             return httpx.Response(
                 200,
@@ -630,6 +646,10 @@ def test_une_interruption_annule_le_reliquat_avant_de_remonter() -> None:
         chemins.append(chemin)
         if chemin.endswith("/wallet/list"):
             return httpx.Response(200, json=WALLET)
+        # Les ordres designent leur compte de paiement depuis le
+        # 2026-08-19 : place-order-bundle exige accountType.
+        if request.url.path.endswith("/balance/payment-options"):
+            return httpx.Response(200, json={"items": [{"accountType": "CeDeFi", "availableBalanceDisplay": "8.73", "enabled": True}]})
         if chemin.endswith("/market/list"):
             return httpx.Response(200, json=_UN_MARCHE_OUVERT)
         if chemin.endswith("/order-book"):

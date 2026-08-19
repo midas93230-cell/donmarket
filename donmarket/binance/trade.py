@@ -369,6 +369,9 @@ class PredictionTrader:
                 # RESTER au carnet pour esperer etre rempli ; un IOC serait
                 # annule aussitot et ne serait jamais teneur.
                 "timeInForce": time_in_force,
+                # CINQUIEME marche. Deduit des soldes, jamais ecrit en dur :
+                # voir `funding_account_type`.
+                "accountType": await self.client.funding_account_type(),  # type: ignore[attr-defined]
             },
         )
         return payload if isinstance(payload, Mapping) else {"raw": payload}

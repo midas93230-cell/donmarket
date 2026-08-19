@@ -143,6 +143,9 @@ class BinancePredictionClient:
         # /wallet/list, et `place-order-bundle` exige les DEUX. Les confondre
         # rend exactement le même -3026 qu'un champ absent.
         self._wallet_id: str | None = None
+        # Compte de paiement retenu pour les ordres. Lu une fois : il ne change
+        # pas en cours de session, et `place-order-bundle` l'exige.
+        self._account_type: str | None = None
 
     @property
     def is_readable(self) -> bool:
@@ -649,6 +652,52 @@ class BinancePredictionClient:
             data = payload.get("data")
             return data if isinstance(data, Mapping) else payload
         raise BinanceSchemaError("quota/limit/status : objet attendu")
+
+    async def funding_account_type(self) -> str:
+        """Le compte de paiement qui porte les fonds — exigé par les ordres.
+
+        MESURÉ le 2026-08-19 : `place-order-bundle` réclame `accountType` après
+        `timeInForce`. Cinquième marche d'un escalier où chaque `-3026` ne
+        nomme qu'un paramètre à la fois.
+
+        On le DÉDUIT des soldes plutôt que de l'écrire en dur. Une constante
+        casserait le jour où le compte est financé depuis SPOT plutôt que
+        CeDeFi, et le refus parlerait alors de solde insuffisant — sans dire
+        que c'est le compte désigné qui n'était pas le bon. C'est exactement
+        la méprise `POLYMARKET_FUNDER` / `POLYMARKET_ADDRESS`, transposée ici.
+        """
+        if self._account_type is not None:
+            return self._account_type
+
+        soldes = await self.payment_option_balances()
+        meilleur: tuple[float, str] | None = None
+        for ligne in soldes:
+            if not ligne.get("enabled"):
+                continue
+            nom = str(ligne.get("accountType") or "").strip()
+            if not nom:
+                continue
+            try:
+                montant = float(ligne.get("availableBalanceDisplay") or 0)
+            except (TypeError, ValueError):
+                montant = 0.0
+            if meilleur is None or montant > meilleur[0]:
+                meilleur = (montant, nom)
+
+        if meilleur is None:
+            raise BinanceApiError(
+                "aucun compte de paiement actif — impossible de désigner "
+                "`accountType` pour un ordre",
+                path="/balance/payment-options",
+            )
+        if meilleur[0] <= 0:
+            logger.warning(
+                "le compte de paiement retenu (%s) affiche un solde nul — "
+                "les ordres seront refusés pour solde insuffisant",
+                meilleur[1],
+            )
+        self._account_type = meilleur[1]
+        return self._account_type
 
     async def payment_option_balances(self) -> tuple[Mapping[str, Any], ...]:
         """`GET /balance/payment-options` — soldes disponibles par moyen."""

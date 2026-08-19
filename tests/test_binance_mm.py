@@ -337,6 +337,10 @@ def _routeur(vus: list[str], *, positions, ordres_ouverts=None):
         vus.append(chemin)
         if chemin.endswith("/wallet/list"):
             return httpx.Response(200, json=PORTEFEUILLE)
+        # Les ordres designent leur compte de paiement depuis le
+        # 2026-08-19 : place-order-bundle exige accountType.
+        if request.url.path.endswith("/balance/payment-options"):
+            return httpx.Response(200, json={"items": [{"accountType": "CeDeFi", "availableBalanceDisplay": "8.73", "enabled": True}]})
         if chemin.endswith("/market/list"):
             return httpx.Response(200, json=UNIVERS)
         if chemin.endswith("/order-book"):
@@ -419,6 +423,10 @@ def test_armee_la_boucle_pose_puis_nettoie_ses_propres_ordres() -> None:
         vus.append(chemin)
         if chemin.endswith("/wallet/list"):
             return httpx.Response(200, json=PORTEFEUILLE)
+        # Les ordres designent leur compte de paiement depuis le
+        # 2026-08-19 : place-order-bundle exige accountType.
+        if request.url.path.endswith("/balance/payment-options"):
+            return httpx.Response(200, json={"items": [{"accountType": "CeDeFi", "availableBalanceDisplay": "8.73", "enabled": True}]})
         if chemin.endswith("/market/list"):
             return httpx.Response(200, json=UNIVERS)
         if chemin.endswith("/order-book"):
