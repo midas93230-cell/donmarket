@@ -341,6 +341,8 @@ class PredictionTrader:
         quote: Quote,
         *,
         time_in_force: str = "GTC",
+        vendor: str | None = None,
+        slippage_bps: int = 1000,
     ) -> Mapping[str, Any]:
         """`POST /trade/place-order-bundle`. LE point où l'argent bouge.
 
@@ -363,6 +365,18 @@ class PredictionTrader:
                 "walletAddress": await self.client.wallet_address(),  # type: ignore[attr-defined]
                 "walletId": await self.client.wallet_id(),  # type: ignore[attr-defined]
                 "quoteId": quote.quote_id,
+                # HUIT marches gravies une par une, chacune coutant un tour de
+                # boucle parce qu un -3026 ne nomme jamais qu un parametre.
+                # Le motif est desormais clair : le bundle veut la MEME
+                # description d ordre que le devis, plus ce qui lui est propre.
+                # On envoie donc tout d un coup au lieu de la decouvrir champ
+                # par champ.
+                "vendor": vendor or DEFAULT_VENDOR,
+                "marketId": order.market_id,
+                "tokenId": order.token_id,
+                "side": order.side,
+                "amountIn": to_base_units(order.notional_usdt),
+                "slippageBps": slippage_bps,
                 # QUATRIEME marche de l'escalier, decouverte au premier tour
                 # arme du 2026-08-19 : sans `timeInForce`, -3026. GTC est le
                 # seul choix coherent avec la strategie -- un ordre teneur doit
