@@ -335,7 +335,13 @@ class PredictionTrader:
         )
         return payload if isinstance(payload, Mapping) else {"raw": payload}
 
-    async def place(self, order: PredictionOrder, quote: Quote) -> Mapping[str, Any]:
+    async def place(
+        self,
+        order: PredictionOrder,
+        quote: Quote,
+        *,
+        time_in_force: str = "GTC",
+    ) -> Mapping[str, Any]:
         """`POST /trade/place-order-bundle`. LE point où l'argent bouge.
 
         Ne jamais réessayer : une erreur réseau après émission ne dit pas si
@@ -357,6 +363,12 @@ class PredictionTrader:
                 "walletAddress": await self.client.wallet_address(),  # type: ignore[attr-defined]
                 "walletId": await self.client.wallet_id(),  # type: ignore[attr-defined]
                 "quoteId": quote.quote_id,
+                # QUATRIEME marche de l'escalier, decouverte au premier tour
+                # arme du 2026-08-19 : sans `timeInForce`, -3026. GTC est le
+                # seul choix coherent avec la strategie -- un ordre teneur doit
+                # RESTER au carnet pour esperer etre rempli ; un IOC serait
+                # annule aussitot et ne serait jamais teneur.
+                "timeInForce": time_in_force,
             },
         )
         return payload if isinstance(payload, Mapping) else {"raw": payload}
@@ -372,7 +384,14 @@ class PredictionTrader:
             raise RuntimeError("batch_cancel() appelé sur un trader désarmé")
         if not order_ids:
             return {}
-        params: dict[str, Any] = {}
+        # MESURE du 2026-08-19 : sans `walletAddress` ET `walletId`, le
+        # serveur rend -1102 « Mandatory parameter was not sent ». L'annulation
+        # echouait donc a chaque tour, et un ordre non annulable est un ordre
+        # qu'on laisse au carnet sans le vouloir.
+        params: dict[str, Any] = {
+            "walletAddress": await self.client.wallet_address(),  # type: ignore[attr-defined]
+            "walletId": await self.client.wallet_id(),  # type: ignore[attr-defined]
+        }
         for index, order_id in enumerate(order_ids):
             params[f"cancelInfoList[{index}].orderId"] = order_id
         payload = await self.client.post(  # type: ignore[attr-defined]

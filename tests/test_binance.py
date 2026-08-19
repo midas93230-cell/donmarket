@@ -448,6 +448,11 @@ def test_lannulation_construit_des_cles_indexees_non_encodees() -> None:
 
     async def scenario():
         def handler(request: httpx.Request) -> httpx.Response:
+            # L annulation identifie le portefeuille depuis le 2026-08-19 :
+            # sans walletAddress ET walletId le serveur rend -1102, et
+            # l ordre reste au carnet.
+            if request.url.path.endswith("/wallet/list"):
+                return httpx.Response(200, json=WALLET_LIST_REEL)
             chemins.append(request.url.raw_path)
             return httpx.Response(200, json={"data": {}})
 
@@ -461,6 +466,8 @@ def test_lannulation_construit_des_cles_indexees_non_encodees() -> None:
     asyncio.run(scenario())
     assert b"cancelInfoList[0].orderId=A1" in chemins[0]
     assert b"cancelInfoList[1].orderId=B2" in chemins[0]
+    assert b"walletId=" in chemins[0]
+    assert b"walletAddress=" in chemins[0]
     assert b"%5B" not in chemins[0]
 
 

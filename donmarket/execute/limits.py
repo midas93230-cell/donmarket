@@ -82,6 +82,18 @@ class GateDecision:
         return len(self.refused)
 
 
+# Tolerance d'un DIXIEME DE CENTIME sur les plafonds. Mesure du 2026-08-19 :
+# un ordre de 2,00 $ exactement etait refuse contre un plafond de 2,00 $, parce
+# que `prix x parts` vaut 2,0000000000000004 en binaire. Le refus etait juste
+# selon la lettre et absurde selon l'intention -- et il bloquait la boucle a
+# chaque tour sans qu'aucun montant reel ne soit en cause.
+#
+# La tolerance est volontairement PLUS PETITE que le plus petit montant
+# significatif : elle absorbe l'erreur de representation, jamais un depassement
+# que quelqu'un pourrait vouloir.
+CENT_EPSILON = 1e-4
+
+
 def order_cost_usd(order) -> float:
     """Ce qu'un ordre immobilise réellement, en dollars.
 
@@ -145,7 +157,7 @@ def gate(
             continue
 
         market_total = per_market.get(market, 0.0) + cost
-        if market_total > limits.max_per_market_usd:
+        if market_total > limits.max_per_market_usd + CENT_EPSILON:
             refused.append(
                 (
                     order,
@@ -155,7 +167,7 @@ def gate(
             )
             continue
 
-        if running_total + cost > limits.max_total_usd:
+        if running_total + cost > limits.max_total_usd + CENT_EPSILON:
             refused.append(
                 (
                     order,
