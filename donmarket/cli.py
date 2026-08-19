@@ -1167,6 +1167,86 @@ async def _run_binance_fill(args: argparse.Namespace) -> int:
     return 0
 
 
+async def _run_binance_mm(args: argparse.Namespace) -> int:
+    """Boucle de tenue de marche sur Binance Prediction."""
+    from .binance.api import BinancePredictionClient
+    from .binance.mm import run_market_maker
+    from .binance.model import BinanceApiError, BinanceSchemaError
+
+    print(SEPARATOR)
+    print("BINANCE \u2014 TENUE DE MARCH\u00c9")
+    print(SEPARATOR)
+
+    client = BinancePredictionClient()
+    if not client.is_readable:
+        manquantes = ", ".join(client.missing_credentials)
+        print("\n\u26a0 cl\u00e9s absentes : " + manquantes)
+        return 1
+
+    if args.arm:
+        print(
+            f"\n\u26a0 ARM\u00c9E \u2014 jusqu'\u00e0 {args.bankroll:.2f} USDT "
+            f"r\u00e9ellement engag\u00e9s, sur {args.max_markets} branche(s), "
+            f"pendant {args.minutes:.0f} min."
+        )
+    else:
+        print("\nD\u00c9SARM\u00c9E \u2014 la boucle planifie et n'envoie rien.")
+        print("  Ajouter --arm pour poser r\u00e9ellement les ordres.")
+
+    try:
+        async with client:
+            rapport = await run_market_maker(
+                client,
+                bankroll=args.bankroll,
+                minutes=args.minutes,
+                interval_s=args.interval,
+                max_markets=args.max_markets,
+                armed=args.arm,
+            )
+    except (BinanceApiError, BinanceSchemaError) as exc:
+        print(f"\n\u2717 {exc}")
+        return 1
+
+    print(f"\n{rapport.ticks} tour(s)")
+    print(f"  ordres pos\u00e9s     : {rapport.placed}")
+    print(f"  ordres annul\u00e9s   : {rapport.cancelled}")
+    print(f"  ordres conserv\u00e9s : {rapport.kept}")
+
+    if rapport.inventory_problem:
+        # Dit AVANT tout chiffre : une boucle qui s'est abstenue n'a pas
+        # mesure la strategie, elle a mesure son propre refus.
+        print(f"\n\u26a0 INVENTAIRE ILLISIBLE : {rapport.inventory_problem}")
+        print(
+            "  La boucle s'est abstenue. Une machine qui ach\u00e8te sans "
+            "savoir\n  ce qu'elle d\u00e9tient ne sait pas revendre : elle "
+            "accumule, et une\n  position gard\u00e9e jusqu'\u00e0 la "
+            "r\u00e9solution vaut 0 ou 1, pas son prix."
+        )
+
+    if rapport.rejects:
+        print("\nBranches \u00e9cart\u00e9es (extrait) :")
+        for market_id, motif in rapport.rejects[:8]:
+            print(f"  {market_id:>9}  {motif}")
+
+    if rapport.left_open:
+        restants = ", ".join(rapport.left_open)
+        print(
+            f"\n\u26a0 {len(rapport.left_open)} ordre(s) PEUT-\u00caTRE encore "
+            f"au carnet : {restants}"
+        )
+        print(
+            "  Le nettoyage final a \u00e9t\u00e9 refus\u00e9 \u2014 "
+            "v\u00e9rifier dans l'application."
+        )
+
+    print(
+        "\nLe taux de remplissage est ce qui d\u00e9cide de tout, et il ne se\n"
+        "lit que sur des ordres r\u00e9ellement pos\u00e9s. Un plan n'est pas\n"
+        "une mesure."
+    )
+    return 0
+
+
 def build_parser() -> argparse.ArgumentParser:
     parser = argparse.ArgumentParser(
         prog="donmarket", description="Lecture et analyse de tout Polymarket."
@@ -1478,6 +1558,44 @@ def build_parser() -> argparse.ArgumentParser:
         "la sonde va jusqu'au devis et s'arrête.",
     )
     fill.set_defaults(handler=lambda args: asyncio.run(_run_binance_fill(args)))
+
+    mm = subparsers.add_parser(
+        "binance-mm",
+        help=(
+            "BOUCLE de tenue de march\u00e9 Binance \u2014 cote, se fait "
+            "remplir, recote"
+        ),
+        description=(
+            "Sans --arm, rien ne part : la boucle lit, planifie et affiche ce "
+            "qu'elle poserait. C'est le mode par lequel il faut passer d'abord."
+        ),
+    )
+    mm.add_argument(
+        "--bankroll",
+        type=float,
+        required=True,
+        help=(
+            "capital total engag\u00e9 en $ \u2014 obligatoire, aucun "
+            "d\u00e9faut"
+        ),
+    )
+    mm.add_argument("--minutes", type=float, default=30.0)
+    mm.add_argument("--interval", type=float, default=30.0)
+    mm.add_argument(
+        "--max-markets",
+        type=int,
+        default=2,
+        help=(
+            "nombre de branches cot\u00e9es en parall\u00e8le "
+            "(d\u00e9faut 2)"
+        ),
+    )
+    mm.add_argument(
+        "--arm",
+        action="store_true",
+        help="ARMER : poser r\u00e9ellement les ordres. Sans lui, rien ne part.",
+    )
+    mm.set_defaults(handler=lambda args: asyncio.run(_run_binance_mm(args)))
 
     builder = subparsers.add_parser(
         "builder",

@@ -32,10 +32,19 @@ from __future__ import annotations
 
 import logging
 from dataclasses import dataclass, field
-from typing import Mapping, Sequence
+from typing import TYPE_CHECKING, Mapping, Sequence
 
-from .model import PredictionBook, PredictionMarket
+from ..execute.limits import ExecutionLimits, gate
+from .model import (
+    BinanceApiError,
+    BinanceSchemaError,
+    PredictionBook,
+    PredictionMarket,
+)
 from .trade import LIMIT, PredictionOrder
+
+if TYPE_CHECKING:  # pragma: no cover
+    from .api import BinancePredictionClient
 
 logger = logging.getLogger(__name__)
 
@@ -208,3 +217,267 @@ def plan(
             )
         )
     return ordres
+
+
+# --- Moteur ----------------------------------------------------------------
+
+
+@dataclass(frozen=True)
+class LiveOrder:
+    """Un ordre à nous, vivant au carnet."""
+
+    order_id: str
+    market_id: int
+    token_id: str
+    side: str
+    price: float
+
+    @property
+    def key(self) -> tuple[int, str, str]:
+        return (self.market_id, self.token_id, self.side)
+
+
+@dataclass
+class MMReport:
+    """Ce que la boucle a fait, et ce qu'elle n'a pas su faire.
+
+    `armed` y figure exprès : un rapport qui ne dit pas s'il décrit une
+    répétition ou un engagement réel est un rapport dangereux.
+    """
+
+    armed: bool
+    ticks: int = 0
+    placed: int = 0
+    cancelled: int = 0
+    kept: int = 0
+    rejects: tuple[tuple[int, str], ...] = ()
+    inventory_problem: str | None = None
+    problem: str | None = None
+    left_open: tuple[str, ...] = ()
+
+
+def read_live_orders(rows: Sequence[Mapping[str, object]]) -> list[LiveOrder]:
+    """Lit nos ordres ouverts. Une ligne illisible est IGNORÉE, pas devinée.
+
+    Un ordre qu'on ne sait pas relire est un ordre qu'on ne saura pas annuler :
+    il ressort dans `left_open` du rapport plutôt que de disparaître.
+    """
+    vivants: list[LiveOrder] = []
+    for row in rows:
+        try:
+            vivants.append(
+                LiveOrder(
+                    order_id=str(row["orderId"]),
+                    market_id=int(row["marketId"]),  # type: ignore[arg-type]
+                    token_id=str(row.get("tokenId") or ""),
+                    side=str(row["side"]).upper(),
+                    price=float(row["price"]),  # type: ignore[arg-type]
+                )
+            )
+        except (KeyError, TypeError, ValueError):
+            continue
+    return vivants
+
+
+def read_inventory(payload: object) -> tuple[Inventory, str | None]:
+    """Lit l'inventaire détenu. Rend aussi le MOTIF s'il est illisible.
+
+    NON VÉRIFIÉ EN DIRECT : `position/list` n'a jamais rendu de ligne non vide
+    sur ce compte, donc le schéma des positions n'a jamais été observé rempli.
+    On lit défensivement et on DIT qu'on n'a pas su lire, plutôt que de rendre
+    un inventaire vide — qui se lirait « je ne détiens rien » et ferait vendre
+    à découvert, ou plutôt refuser de vendre ce qu'on détient vraiment.
+    """
+    inv = Inventory()
+    if not isinstance(payload, Mapping):
+        return inv, "réponse de positions illisible"
+    lignes = payload.get("positions")
+    if not isinstance(lignes, list):
+        return inv, "champ `positions` absent de la réponse"
+    if not lignes:
+        return inv, None  # rien en portefeuille : lecture valide
+
+    inconnues = 0
+    for row in lignes:
+        if not isinstance(row, Mapping):
+            inconnues += 1
+            continue
+        jeton = row.get("tokenId") or row.get("outcomeTokenId")
+        parts = row.get("shareQty") or row.get("quantity") or row.get("shares")
+        cout = row.get("costBasis") or row.get("totalCost") or 0
+        if jeton is None or parts is None:
+            inconnues += 1
+            continue
+        try:
+            inv.add_fill(str(jeton), float(parts), float(cout))  # type: ignore[arg-type]
+        except (TypeError, ValueError):
+            inconnues += 1
+
+    if inconnues:
+        return inv, (
+            f"{inconnues} position(s) sur {len(lignes)} illisibles — schéma "
+            "des positions jamais observé rempli, la vente est suspendue"
+        )
+    return inv, None
+
+
+def reconcile(
+    voulus: Sequence[PredictionOrder], vivants: Sequence[LiveOrder]
+) -> tuple[list[PredictionOrder], list[LiveOrder], list[LiveOrder]]:
+    """Compare le voulu au vivant. Rend (à poser, à annuler, à garder).
+
+    Un ordre déjà au bon prix est GARDÉ, pas rejoué : le réémettre perdrait sa
+    place dans la file, et la place dans la file est précisément ce qui décide
+    d'être rempli ou non. C'est le seul avantage d'un teneur qui arrive tôt.
+    """
+    par_cle = {o.key: o for o in vivants}
+    a_poser: list[PredictionOrder] = []
+    a_garder: list[LiveOrder] = []
+    utilises: set[tuple[int, str, str]] = set()
+
+    for voulu in voulus:
+        cle = (voulu.market_id, voulu.token_id, voulu.side.upper())
+        vivant = par_cle.get(cle)
+        if vivant is not None and abs(vivant.price - voulu.price) < 1e-9:
+            a_garder.append(vivant)
+            utilises.add(cle)
+            continue
+        a_poser.append(voulu)
+
+    a_annuler = [o for o in vivants if o.key not in utilises]
+    return a_poser, a_annuler, a_garder
+
+
+async def run_market_maker(
+    client: "BinancePredictionClient",
+    *,
+    bankroll: float,
+    minutes: float,
+    interval_s: float,
+    max_markets: int,
+    armed: bool,
+    universe: int = 40,
+    now_ms: int | None = None,
+    sleep=None,
+    now=None,
+) -> MMReport:
+    """La boucle. Rien ne bouge si `armed` est faux — même chemin, même plan.
+
+    ORDRE DES OPÉRATIONS, et il compte : on lit l'inventaire AVANT de planifier.
+    Planifier d'abord reviendrait à décider d'acheter sans savoir ce qu'on
+    détient déjà, donc à empiler des positions sur un marché qu'on croyait vide.
+
+    SI L'INVENTAIRE EST ILLISIBLE, LA BOUCLE S'ABSTIENT. Elle annule ce qui est
+    vivant et ne pose plus rien. C'est plus dur que de continuer en aveugle,
+    mais une machine qui achète sans savoir ce qu'elle détient ne sait pas
+    revendre : elle accumule, et l'accumulation n'est pas la stratégie, c'est
+    son échec. Le schéma des positions n'a jamais été observé rempli sur ce
+    compte — on ne le suppose donc pas.
+
+    Le nettoyage final est dans un `finally` : un ordre laissé au carnet après
+    l'arrêt est une position que plus personne ne surveille.
+    """
+    import asyncio as _asyncio
+    import time as _time
+
+    from .api import BinancePredictionClient  # noqa: F401  (typage seulement)
+    from .trade import PredictionTrader
+
+    sleep = sleep or _asyncio.sleep
+    now = now or _time.monotonic
+    horloge_ms = int(_time.time() * 1000) if now_ms is None else now_ms
+
+    par_marche = bankroll / max(max_markets, 1)
+    limites = ExecutionLimits(
+        max_total_usd=bankroll,
+        max_per_market_usd=par_marche,
+        max_orders=max_markets,
+    )
+    trader = PredictionTrader(client, limits=limites, armed=armed)
+    rapport = MMReport(armed=armed)
+
+    debut = now()
+    limite_s = minutes * 60
+    vivants: list[LiveOrder] = []
+
+    try:
+        while True:
+            rapport.ticks += 1
+            try:
+                marches = await client.list_markets(limit=universe)
+                carnets = await client.fetch_books(marches)
+                lignes_pos = await client.positions()
+                inventaire, motif = read_inventory(
+                    {"positions": [dict(r) for r in lignes_pos]}
+                )
+                vivants = read_live_orders(await client.active_orders())
+            except (BinanceApiError, BinanceSchemaError) as exc:
+                # Un relevé raté n'arrête pas la boucle : les ordres posés
+                # restent au carnet et il faut continuer à les surveiller.
+                logger.warning("relevé incomplet au tour %d : %s", rapport.ticks, exc)
+                if now() - debut + interval_s > limite_s:
+                    break
+                await sleep(interval_s)
+                continue
+
+            rapport.inventory_problem = motif
+            if motif is not None:
+                logger.error(
+                    "inventaire illisible (%s) — la boucle s'abstient et annule", motif
+                )
+                voulus: list[PredictionOrder] = []
+            else:
+                rungs, rejets = eligible(
+                    marches, carnets, now_ms=horloge_ms + int((now() - debut) * 1000)
+                )
+                rapport.rejects = tuple(rejets[:20])
+                voulus = plan(
+                    rungs,
+                    inventaire,
+                    notional_per_market=par_marche,
+                    max_markets=max_markets,
+                )
+
+            a_poser, a_annuler, a_garder = reconcile(voulus, vivants)
+            rapport.kept = len(a_garder)
+
+            refus = gate(a_poser, limits=limites)
+            for _ordre, motif_refus in refus.refused:
+                logger.info("ordre refusé par le portier : %s", motif_refus)
+
+            if armed and a_annuler:
+                try:
+                    await trader.batch_cancel([o.order_id for o in a_annuler])
+                    rapport.cancelled += len(a_annuler)
+                except (BinanceApiError, BinanceSchemaError) as exc:
+                    logger.error("annulation refusée : %s", exc)
+
+            for ordre in refus.allowed:
+                if not armed:
+                    rapport.placed += 1
+                    continue
+                try:
+                    devis = await trader.get_quote(ordre)
+                    await trader.place(ordre, devis)
+                    rapport.placed += 1
+                except (BinanceApiError, BinanceSchemaError, ValueError) as exc:
+                    logger.warning(
+                        "ordre non passé sur %s : %s", ordre.market_id, exc
+                    )
+
+            if now() - debut + interval_s > limite_s:
+                break
+            await sleep(interval_s)
+    finally:
+        if armed and vivants:
+            try:
+                await trader.batch_cancel([o.order_id for o in vivants])
+                rapport.cancelled += len(vivants)
+            except (BinanceApiError, BinanceSchemaError) as exc:
+                logger.error(
+                    "NETTOYAGE FINAL REFUSÉ (%s) — des ordres sont peut-être "
+                    "ENCORE au carnet, à vérifier dans l'application", exc
+                )
+                rapport.left_open = tuple(o.order_id for o in vivants)
+
+    return rapport

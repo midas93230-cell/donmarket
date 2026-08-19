@@ -7,16 +7,29 @@ vérifiable sans place de marché en face.
 
 from __future__ import annotations
 
+import asyncio
+
+import httpx
 import pytest
+
+from donmarket.binance.api import BinancePredictionClient, Credentials
 
 from donmarket.binance.mm import (
     MIN_MINUTES_LEFT,
     MIN_SPREAD_TICKS,
     Inventory,
+    LiveOrder,
     eligible,
     plan,
+    read_inventory,
+    read_live_orders,
+    reconcile,
+    run_market_maker,
 )
+from donmarket.binance.trade import LIMIT, PredictionOrder
 from donmarket.binance.model import PredictionBook, PredictionLevel, PredictionMarket
+
+FAKE = Credentials(api_key="cle_test", api_secret="secret_test")
 
 MAINTENANT_MS = 1_787_000_000_000
 LOIN = MAINTENANT_MS + 86_400_000
@@ -183,3 +196,225 @@ def test_les_deux_branches_dun_marche_sont_cotables_separement() -> None:
         now_ms=MAINTENANT_MS,
     )
     assert {r.outcome for r in rungs} == {"Up", "Down"}
+
+
+# --- Réconciliation --------------------------------------------------------
+
+
+def _voulu(price: float, side: str = "BUY", token: str = "t1", market: int = 1):
+    return PredictionOrder(
+        market_id=market, token_id=token, side=side,
+        order_type=LIMIT, price=price, size=4.0,
+    )
+
+
+def _vivant(price: float, side: str = "BUY", token: str = "t1", market: int = 1):
+    return LiveOrder(
+        order_id=f"O-{price}", market_id=market, token_id=token,
+        side=side, price=price,
+    )
+
+
+def test_un_ordre_deja_au_bon_prix_est_garde_pas_rejoue() -> None:
+    """ANCRAGE. Réémettre un ordre identique lui fait perdre sa place dans la
+    file — et la place dans la file est exactement ce qui décide d'être rempli
+    ou non. C'est le seul avantage d'un teneur arrivé tôt ; le gaspiller à
+    chaque tour reviendrait à ne jamais être servi."""
+    a_poser, a_annuler, a_garder = reconcile([_voulu(0.50)], [_vivant(0.50)])
+    assert a_poser == []
+    assert a_annuler == []
+    assert len(a_garder) == 1
+
+
+def test_un_ordre_au_mauvais_prix_est_annule_et_repose() -> None:
+    a_poser, a_annuler, a_garder = reconcile([_voulu(0.51)], [_vivant(0.50)])
+    assert len(a_poser) == 1 and a_poser[0].price == 0.51
+    assert len(a_annuler) == 1 and a_annuler[0].price == 0.50
+    assert a_garder == []
+
+
+def test_un_ordre_qui_nest_plus_voulu_est_annule() -> None:
+    """Un marché sorti du plan — écart resserré, échéance approchée — laisse un
+    ordre vivant qui n'est plus surveillé par personne."""
+    a_poser, a_annuler, _ = reconcile([], [_vivant(0.50)])
+    assert a_poser == []
+    assert len(a_annuler) == 1
+
+
+def test_lachat_et_la_vente_sont_des_cles_distinctes() -> None:
+    """Un ordre d'achat vivant ne doit pas passer pour une vente voulue."""
+    a_poser, a_annuler, _ = reconcile(
+        [_voulu(0.53, side="SELL")], [_vivant(0.53, side="BUY")]
+    )
+    assert len(a_poser) == 1 and a_poser[0].side == "SELL"
+    assert len(a_annuler) == 1 and a_annuler[0].side == "BUY"
+
+
+def test_un_ordre_vivant_illisible_est_ignore_pas_devine() -> None:
+    """Une ligne qu'on ne sait pas relire est une ligne qu'on ne saura pas
+    annuler. L'inventer serait pire que l'ignorer."""
+    lignes = [
+        {"orderId": "A", "marketId": 1, "tokenId": "t1", "side": "BUY", "price": "0.5"},
+        {"orderId": "B"},
+        {"marketId": 2, "side": "SELL", "price": "x"},
+    ]
+    vivants = read_live_orders(lignes)
+    assert len(vivants) == 1 and vivants[0].order_id == "A"
+
+
+# --- Inventaire ------------------------------------------------------------
+
+
+def test_un_portefeuille_vide_est_une_lecture_valide() -> None:
+    inv, motif = read_inventory({"positions": []})
+    assert motif is None and inv.shares == {}
+
+
+def test_un_champ_positions_absent_est_signale_pas_pris_pour_du_vide() -> None:
+    """« Je ne détiens rien » et « je n'ai pas su lire » mènent à des décisions
+    opposées : la première fait acheter, la seconde doit faire s'abstenir."""
+    inv, motif = read_inventory({"summary": {}})
+    assert motif is not None
+
+
+def test_une_position_illisible_suspend_la_vente() -> None:
+    """NON VÉRIFIÉ EN DIRECT : `position/list` n'a jamais rendu de ligne non
+    vide sur ce compte. Le schéma est donc supposé, et le code doit le DIRE
+    plutôt que de vendre sur une supposition."""
+    inv, motif = read_inventory({"positions": [{"quelque": "chose"}]})
+    assert motif is not None and "illisibles" in motif
+
+
+def test_une_position_lisible_alimente_linventaire() -> None:
+    inv, motif = read_inventory(
+        {"positions": [{"tokenId": "t1", "shareQty": "4.5", "costBasis": "2.0"}]}
+    )
+    assert motif is None
+    assert inv.held("t1") == pytest.approx(4.5)
+
+
+# --- Boucle ----------------------------------------------------------------
+
+
+UNIVERS = {
+    "marketTopics": [
+        {
+            "marketTopicId": 1,
+            "vendor": "PREDICT_FUN",
+            "endDate": LOIN,
+            "feeRateBps": 200,
+            "slippageBps": 1000,
+            "markets": [
+                {
+                    "marketId": 1,
+                    "title": "essai",
+                    "tradingStatus": "OPEN",
+                    "liquidity": "5000",
+                    "outcomes": [
+                        {"name": "Up", "price": "0.50", "tokenId": "t1", "index": 0},
+                        {"name": "Down", "price": "0.47", "tokenId": "t2", "index": 1},
+                    ],
+                }
+            ],
+        }
+    ],
+    "total": 1,
+    "hasMore": False,
+}
+CARNET = {
+    "data": {
+        "marketId": 1, "tokenId": "t1", "outcome": "Up",
+        "bids": [{"price": "0.50", "size": "50"}],
+        "asks": [{"price": "0.53", "size": "50"}],
+    }
+}
+PORTEFEUILLE = {"data": [{"walletAddress": "0xabc", "walletId": "w-1"}]}
+
+
+def _routeur(vus: list[str], *, positions, ordres_ouverts=None):
+    def handler(request: httpx.Request) -> httpx.Response:
+        chemin = request.url.path
+        vus.append(chemin)
+        if chemin.endswith("/wallet/list"):
+            return httpx.Response(200, json=PORTEFEUILLE)
+        if chemin.endswith("/market/list"):
+            return httpx.Response(200, json=UNIVERS)
+        if chemin.endswith("/order-book"):
+            return httpx.Response(200, json=CARNET)
+        if chemin.endswith("/position/list"):
+            return httpx.Response(200, json=positions)
+        if chemin.endswith("/order/list"):
+            return httpx.Response(200, json={"orders": ordres_ouverts or []})
+        if chemin.endswith("/trade/get-quote"):
+            return httpx.Response(200, json={"data": {"quoteId": "Q"}})
+        if chemin.endswith("/trade/place-order-bundle"):
+            return httpx.Response(200, json={"data": {"orderId": "O-1"}})
+        if chemin.endswith("/trade/batch-cancel"):
+            return httpx.Response(200, json={"data": {}})
+        raise AssertionError(f"route inattendue : {chemin}")
+
+    return httpx.MockTransport(handler)
+
+
+async def _dors(_s: float) -> None:
+    return None
+
+
+def _lance(transport, **kw):
+    async def scenario():
+        async with BinancePredictionClient(
+            credentials=FAKE, transport=transport
+        ) as client:
+            horloge = iter(range(0, 100_000, 40))
+            return await run_market_maker(
+                client, bankroll=4.0, minutes=1, interval_s=30,
+                max_markets=2, now_ms=MAINTENANT_MS,
+                sleep=_dors, now=lambda: next(horloge), **kw,
+            )
+
+    return asyncio.run(scenario())
+
+
+def test_desarmee_la_boucle_planifie_et_nenvoie_rien() -> None:
+    vus: list[str] = []
+    rapport = _lance(_routeur(vus, positions={"positions": []}), armed=False)
+    assert rapport.armed is False
+    assert rapport.placed > 0, "aucun ordre planifié : le plan est vide"
+    assert not any("place-order-bundle" in c for c in vus)
+    assert not any("batch-cancel" in c for c in vus)
+
+
+def test_un_inventaire_illisible_fait_abstenir_la_boucle() -> None:
+    """ANCRAGE DE SÉCURITÉ, et c'est le choix le plus important du module.
+
+    Une machine qui achète sans savoir ce qu'elle détient ne sait pas revendre :
+    elle accumule. L'accumulation n'est pas la stratégie, c'est son échec — et
+    sur un marché de prédiction, une position gardée jusqu'à la résolution vaut
+    0 ou 1, pas le prix payé.
+
+    Le schéma des positions n'a jamais été observé rempli sur ce compte : il
+    est donc supposé, et une supposition ne doit pas déclencher d'achat.
+    """
+    vus: list[str] = []
+    rapport = _lance(
+        _routeur(vus, positions={"positions": [{"champ": "inconnu"}]}), armed=False
+    )
+    assert rapport.inventory_problem is not None
+    assert rapport.placed == 0, "des ordres ont été planifiés sur un inventaire illisible"
+
+
+def test_armee_la_boucle_pose_puis_nettoie_a_larret() -> None:
+    """Un ordre laissé au carnet après l'arrêt est une position que plus
+    personne ne surveille."""
+    vus: list[str] = []
+    ouverts = [
+        {"orderId": "O-9", "marketId": 1, "tokenId": "t1",
+         "side": "BUY", "price": "0.42"}
+    ]
+    rapport = _lance(
+        _routeur(vus, positions={"positions": []}, ordres_ouverts=ouverts), armed=True
+    )
+    assert rapport.armed is True
+    assert any("place-order-bundle" in c for c in vus), "aucun ordre posé"
+    assert any("batch-cancel" in c for c in vus), "aucun nettoyage"
+    assert rapport.cancelled > 0
