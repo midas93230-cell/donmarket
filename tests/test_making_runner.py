@@ -55,11 +55,15 @@ def test_un_ordre_deja_au_bon_prix_est_garde_pas_rejoue() -> None:
     assert poser == [] and annuler == [] and len(garder) == 1
 
 
-def test_un_ordre_au_mauvais_prix_est_annule_et_repose() -> None:
+def test_un_ordre_vraiment_loin_du_prix_est_annule_et_repose() -> None:
+    """RECALÉ le 2026-08-20 : ce test utilisait un écart d'UN pas, qui doit
+    désormais être ignoré. C'est justement le comportement corrigé — recoter
+    pour un pas renvoyait l'ordre en fin de file à chaque tour et l'empêchait
+    d'être jamais servi. Voir les tests d'hystérésis plus bas."""
     poser, annuler, _ = reconcile(
-        [_voulu(price=0.21)], [_vivant(price=0.20)], nous=frozenset({"O-1"})
+        [_voulu(price=0.24)], [_vivant(price=0.20)], nous=frozenset({"O-1"})
     )
-    assert len(poser) == 1 and poser[0].price == 0.21
+    assert len(poser) == 1 and poser[0].price == 0.24
     assert len(annuler) == 1
 
 
@@ -231,3 +235,42 @@ def test_un_releve_rate_narrete_pas_la_boucle() -> None:
         max_markets=2, armed=False, sleep=lambda _s: None, now=_horloge(),
     )
     assert rapport.ticks >= 1
+
+
+# --- Hysteresis ------------------------------------------------------------
+
+
+def test_un_ecart_dun_pas_ne_declenche_pas_de_recotation() -> None:
+    """ANCRAGE, et il vient de la premiere heure armee du 2026-08-20 : 13
+    ordres poses pour 24 annules en 47 tours, et ZERO remplissage.
+
+    Recoter renvoie l'ordre en FIN DE FILE, et la place dans la file est le
+    seul avantage d'un teneur. Un ordre qui ne reste jamais en place n'est
+    jamais servi. Mieux vaut un ordre un pas trop bas qui vieillit qu'un ordre
+    parfaitement place qui repart de zero chaque minute.
+    """
+    poser, annuler, garder = reconcile(
+        [_voulu(price=0.21)], [_vivant(price=0.20)], nous=frozenset({"O-1"})
+    )
+    assert poser == [], "recotation declenchee pour un seul pas"
+    assert annuler == []
+    assert len(garder) == 1
+
+
+def test_un_ecart_de_trois_pas_declenche_bien_la_recotation() -> None:
+    """L'hysteresis ne doit pas devenir de l'immobilisme : quand le marche a
+    vraiment bouge, un ordre reste loin du carnet ne sera jamais servi non
+    plus, et il immobilise du capital pour rien."""
+    poser, annuler, _garder = reconcile(
+        [_voulu(price=0.23)], [_vivant(price=0.20)], nous=frozenset({"O-1"})
+    )
+    assert len(poser) == 1 and poser[0].price == 0.23
+    assert len(annuler) == 1
+
+
+def test_le_seuil_est_reglable() -> None:
+    poser, _annuler, garder = reconcile(
+        [_voulu(price=0.25)], [_vivant(price=0.20)],
+        nous=frozenset({"O-1"}), hysteresis_ticks=10,
+    )
+    assert poser == [] and len(garder) == 1

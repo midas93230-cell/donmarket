@@ -49,6 +49,15 @@ from .core import DesiredOrder, Inventory, Rung, eligible, plan
 
 logger = logging.getLogger(__name__)
 
+TICK = 0.01
+
+# Nombre de pas d'écart toléré avant de recoter. MESURÉ le 2026-08-20 : sans
+# hystérésis, la boucle a recoté presque à chaque tour (24 annulations pour 13
+# ordres en 47 tours) et n'a rien été rempli en une heure. Chaque recotation
+# renvoie l'ordre en fin de file ; la valeur 2 laisse un ordre y vieillir tant
+# que le marché n'a pas vraiment bougé.
+HYSTERESIS_TICKS = 2
+
 
 @dataclass(frozen=True)
 class LiveOrder:
@@ -90,22 +99,38 @@ def reconcile(
     vivants: Sequence[LiveOrder],
     *,
     nous: frozenset[str],
+    hysteresis_ticks: int = HYSTERESIS_TICKS,
+    tick: float = TICK,
 ) -> tuple[list[DesiredOrder], list[LiveOrder], list[LiveOrder]]:
     """Compare le voulu au vivant. Rend (à poser, à annuler, à garder).
 
     `nous` DÉLIMITE ce que la boucle a le droit de toucher : les identifiants
     des ordres qu'elle a elle-même posés. Tout le reste est ÉTRANGER — compté,
     journalisé, et laissé intact.
+
+    HYSTÉRÉSIS, ajoutée le 2026-08-20 après la première heure armée. Le premier
+    tour réel a rendu 13 ordres posés pour 24 annulés en 47 tours : la boucle
+    recotait à chaque mouvement d'un seul pas, donc presque à chaque tour. Or
+    recoter renvoie l'ordre en FIN DE FILE, et la place dans la file est le seul
+    avantage d'un teneur. Un ordre qui ne reste jamais en place n'est jamais
+    servi — zéro remplissage en une heure, ce qui n'était pas de la malchance
+    mais la conséquence directe.
+
+    On ne recote donc que si le prix voulu s'écarte de plus de
+    `hysteresis_ticks` pas. Un écart d'un pas est ignoré : mieux vaut un ordre
+    un pas trop bas qui vieillit dans la file qu'un ordre parfaitement placé
+    qui repart de zéro toutes les minutes.
     """
     par_cle = {o.key: o for o in vivants}
     a_poser: list[DesiredOrder] = []
     a_garder: list[LiveOrder] = []
     utilises: set[tuple[str, str]] = set()
+    seuil = hysteresis_ticks * tick - 1e-9
 
     for voulu in voulus:
         cle = (voulu.token_id, voulu.side.upper())
         vivant = par_cle.get(cle)
-        if vivant is not None and abs(vivant.price - voulu.price) < 1e-9:
+        if vivant is not None and abs(vivant.price - voulu.price) <= seuil:
             a_garder.append(vivant)
             utilises.add(cle)
             continue
