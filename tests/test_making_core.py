@@ -1,0 +1,204 @@
+"""Tests du coeur de tenue de marché Polymarket.
+
+Le module est PUR : ni réseau ni disque. C'est délibéré — la partie qui décide
+où poser de l'argent doit être vérifiable sans place de marché en face.
+"""
+
+from __future__ import annotations
+
+from dataclasses import dataclass, field
+
+import pytest
+
+from donmarket.making.core import (
+    MAX_SPREAD_TICKS,
+    MIN_DEPTH_SHARES,
+    DesiredOrder,
+    Inventory,
+    eligible,
+    plan,
+)
+
+
+@dataclass(frozen=True)
+class _Niveau:
+    price: float
+    size: float
+
+
+@dataclass(frozen=True)
+class _Carnet:
+    """Carnet minimal, PIRE PRIX EN PREMIER comme sur Polymarket."""
+
+    best_bid: float
+    best_ask: float
+    bids: tuple = field(default_factory=tuple)
+    asks: tuple = field(default_factory=tuple)
+
+
+@dataclass(frozen=True)
+class _Marche:
+    condition_id: str = "0xC"
+    question: str = "une question ?"
+    token_ids: tuple = ("t1",)
+    min_order_size: float = 5.0
+    min_tick_size: float = 0.01
+
+
+def _carnet(bid: float, ask: float, taille: float = 100.0) -> _Carnet:
+    return _Carnet(
+        best_bid=bid,
+        best_ask=ask,
+        # Pire prix en premier : le MEILLEUR est en dernier.
+        bids=(_Niveau(bid - 0.05, 999.0), _Niveau(bid, taille)),
+        asks=(_Niveau(ask + 0.05, 999.0), _Niveau(ask, taille)),
+    )
+
+
+def test_un_ecart_dun_seul_pas_est_ecarte() -> None:
+    rungs, rejets = eligible([_Marche()], {"t1": _carnet(0.50, 0.51)}, capital_usd=8.73)
+    assert rungs == []
+    assert "rien à capturer" in rejets[0][1]
+
+
+def test_un_ecart_beant_est_ecarte_et_cest_le_piege_principal() -> None:
+    """LE PIÈGE DU 2026-07-28, mesuré à nouveau le 2026-08-20.
+
+    Bid 0,002 contre ask 0,565 affiche 28 000 % de gain brut. Ce n'est pas une
+    aubaine : c'est un carnet VIDE où personne ne viendra servir un ordre. Sans
+    ce filtre, la mesure trouvait 1608 branches « cotables » au lieu de 351, et
+    la quasi-totalité était ce mirage.
+    """
+    rungs, rejets = eligible(
+        [_Marche()], {"t1": _carnet(0.20, 0.20 + (MAX_SPREAD_TICKS + 5) * 0.01)},
+        capital_usd=8.73,
+    )
+    assert rungs == []
+    assert "béant" in rejets[0][1]
+
+
+def test_un_prix_extreme_est_ecarte() -> None:
+    rungs, rejets = eligible([_Marche()], {"t1": _carnet(0.02, 0.06)}, capital_usd=8.73)
+    assert rungs == []
+    assert "hors bande" in rejets[0][1]
+
+
+def test_un_carnet_sans_contrepartie_est_ecarte() -> None:
+    """Sans taille en face, on ne peut ni être rempli à l'achat ni ressortir."""
+    rungs, rejets = eligible(
+        [_Marche()], {"t1": _carnet(0.50, 0.53, taille=MIN_DEPTH_SHARES - 1)},
+        capital_usd=8.73,
+    )
+    assert rungs == []
+    assert "contrepartie" in rejets[0][1]
+
+
+def test_la_profondeur_se_lit_au_MEILLEUR_prix_pas_au_pire() -> None:
+    """ANCRAGE. Les carnets Polymarket arrivent PIRE PRIX EN PREMIER (mesuré le
+    2026-07-26). Lire `bids[0]` donnerait la profondeur du pire palier — ici
+    999 parts — et laisserait passer un carnet sans contrepartie réelle."""
+    creux = _Carnet(
+        best_bid=0.50,
+        best_ask=0.53,
+        bids=(_Niveau(0.45, 999.0), _Niveau(0.50, 1.0)),
+        asks=(_Niveau(0.58, 999.0), _Niveau(0.53, 1.0)),
+    )
+    rungs, rejets = eligible([_Marche()], {"t1": creux}, capital_usd=8.73)
+    assert rungs == [], "la profondeur a été lue au pire prix"
+    assert "contrepartie" in rejets[0][1]
+
+
+def test_une_branche_saine_est_retenue_avec_son_ticket() -> None:
+    rungs, _ = eligible([_Marche()], {"t1": _carnet(0.20, 0.24)}, capital_usd=8.73)
+    assert len(rungs) == 1
+    rung = rungs[0]
+    assert rung.buy_price == 0.20 and rung.sell_price == 0.24
+    assert rung.ticket_usd == pytest.approx(1.0)  # 5 parts x 0,20
+    assert rung.gross_edge == pytest.approx(0.04 / 0.20)
+
+
+def test_un_ticket_au_dessus_du_capital_est_ecarte() -> None:
+    rungs, rejets = eligible([_Marche()], {"t1": _carnet(0.50, 0.54)}, capital_usd=1.0)
+    assert rungs == []
+    assert "capital" in rejets[0][1]
+
+
+def test_le_classement_met_le_meilleur_gain_devant() -> None:
+    marches = [
+        _Marche(condition_id="0xA", token_ids=("tA",)),
+        _Marche(condition_id="0xB", token_ids=("tB",)),
+    ]
+    carnets = {"tA": _carnet(0.50, 0.53), "tB": _carnet(0.20, 0.24)}
+    rungs, _ = eligible(marches, carnets, capital_usd=8.73)
+    assert [r.token_id for r in rungs] == ["tB", "tA"]
+
+
+# --- Planification ---------------------------------------------------------
+
+
+def _rungs(bid=0.20, ask=0.24):
+    rungs, _ = eligible([_Marche()], {"t1": _carnet(bid, ask)}, capital_usd=8.73)
+    return rungs
+
+
+def test_sans_inventaire_on_achete_au_bid() -> None:
+    ordres = plan(_rungs(), Inventory(), notional_per_market=2.0, max_markets=3)
+    assert len(ordres) == 1
+    assert ordres[0].side == "BUY" and ordres[0].price == 0.20
+    assert ordres[0].size == 10.0  # 2 $ / 0,20
+
+
+def test_les_parts_sont_entieres() -> None:
+    """Polymarket refuse une fraction de part ; l'arrondi doit se faire ici,
+    pas au refus du serveur."""
+    ordres = plan(_rungs(bid=0.13, ask=0.17), Inventory(),
+                  notional_per_market=2.0, max_markets=3)
+    assert ordres[0].size == float(int(ordres[0].size))
+
+
+def test_avec_inventaire_on_revend_a_lask() -> None:
+    inv = Inventory()
+    inv.add("t1", 10.0)
+    ordres = plan(_rungs(), inv, notional_per_market=2.0, max_markets=3)
+    assert len(ordres) == 1
+    assert ordres[0].side == "SELL" and ordres[0].price == 0.24
+
+
+def test_on_ne_cote_jamais_les_deux_cotes_de_la_meme_branche() -> None:
+    """ANCRAGE DE SÉCURITÉ. Poser un achat ET une vente sur la même branche,
+    c'est se croiser soi-même : le carnet nous apparie contre nous et on PAIE
+    l'écart au lieu de l'encaisser. Le seul cas où la stratégie perd à coup
+    sûr."""
+    inv = Inventory()
+    inv.add("t1", 10.0)
+    ordres = plan(_rungs(), inv, notional_per_market=2.0, max_markets=3)
+    assert len({(o.token_id, o.side) for o in ordres}) == 1
+
+
+def test_un_reliquat_sous_le_minimum_nest_pas_propose_a_la_vente() -> None:
+    """Un ordre sous `orderMinSize` sera refusé : ne pas l'émettre vaut mieux
+    que de le voir rejeter à l'envoi, marché par marché."""
+    inv = Inventory()
+    inv.add("t1", 2.0)
+    ordres = plan(_rungs(), inv, notional_per_market=2.0, max_markets=3)
+    assert ordres == []
+
+
+def test_un_notionnel_trop_petit_ne_produit_pas_dordre() -> None:
+    ordres = plan(_rungs(), Inventory(), notional_per_market=0.5, max_markets=3)
+    assert ordres == []
+
+
+def test_le_nombre_de_marches_est_plafonne() -> None:
+    marches = [_Marche(condition_id=f"0x{i}", token_ids=(f"t{i}",)) for i in range(5)]
+    carnets = {f"t{i}": _carnet(0.20, 0.24) for i in range(5)}
+    rungs, _ = eligible(marches, carnets, capital_usd=8.73)
+    ordres = plan(rungs, Inventory(), notional_per_market=2.0, max_markets=2)
+    assert len(ordres) == 2
+
+
+def test_le_cout_dun_ordre_est_prix_fois_taille() -> None:
+    ordre = DesiredOrder(
+        condition_id="0xC", token_id="t1", side="BUY", price=0.20, size=10.0
+    )
+    assert ordre.cost_usd == pytest.approx(2.0)
