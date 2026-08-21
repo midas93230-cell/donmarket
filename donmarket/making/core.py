@@ -39,6 +39,7 @@ que nous. Aucun rendement n'est annoncé ici.
 from __future__ import annotations
 
 from dataclasses import dataclass, field
+from datetime import datetime, timezone
 from typing import Mapping, Sequence
 
 DEFAULT_TICK = 0.01
@@ -71,6 +72,20 @@ MIN_DEPTH_SHARES = 20.0
 # Le seuil est bas volontairement : à ce capital on ne cherche pas les marchés
 # les plus actifs, seulement à éliminer ceux où il ne se passe RIEN.
 MIN_VOLUME_24H_USD = 500.0
+
+# Heures minimales avant résolution. MESURÉ le 2026-08-21, et c'est la mesure
+# la plus chère du projet : la boucle a acheté sept positions en cinq heures et
+# QUATRE sont tombées à zéro parce que le marché s'est résolu — un match de
+# Dota, un match de foot, un tournoi CS2. Achetées à 0,11-0,13, revenues à
+# 0,00. Perte : 10 $ sur 16.
+#
+# La tenue de marché suppose de pouvoir REVENDRE. Un marché qui se résout
+# pendant qu'on le cote ne le permet pas : la position ne vaut plus un prix,
+# elle vaut un résultat. Ce n'est plus de la tenue de marché, c'est un pari —
+# exactement ce que tous les autres garde-fous cherchent à empêcher.
+#
+# Six heures : de quoi être rempli à l'achat ET avoir le temps de ressortir.
+MIN_HOURS_TO_RESOLUTION = 6.0
 
 
 @dataclass(frozen=True)
@@ -123,12 +138,30 @@ def _depth(levels: Sequence[object]) -> float:
     return float(getattr(levels[-1], "size", 0.0) or 0.0)
 
 
+def _hours_until(end_date: object, now: datetime | None) -> float | None:
+    """Heures restantes avant résolution, ou None si la date est illisible.
+
+    Rendre None plutôt que l'infini est délibéré : sur ce filtre, une échéance
+    qu'on ne sait pas lire doit faire RENONCER. Une valeur optimiste par défaut
+    ferait coter précisément les marchés dont on ignore quand ils se ferment.
+    """
+    if not isinstance(end_date, datetime):
+        return None
+    maintenant = now or datetime.now(timezone.utc)
+    if end_date.tzinfo is None:
+        end_date = end_date.replace(tzinfo=timezone.utc)
+    if maintenant.tzinfo is None:
+        maintenant = maintenant.replace(tzinfo=timezone.utc)
+    return (end_date - maintenant).total_seconds() / 3600.0
+
+
 def eligible(
     markets: Sequence[object],
     books: Mapping[str, object],
     *,
     capital_usd: float,
     improve_ticks: int = 0,
+    now: datetime | None = None,
 ) -> tuple[list[Rung], list[tuple[str, str]]]:
     """Les branches cotables, et le motif de chaque écartée.
 
@@ -151,6 +184,22 @@ def eligible(
         if volume_24h < MIN_VOLUME_24H_USD:
             rejets.append(
                 (condition_id, f"{volume_24h:.0f} $ sur 24 h — marché endormi")
+            )
+            continue
+
+        # ÉCHÉANCE. Le filtre le plus important du module, et le seul écrit
+        # après une perte réelle. Un marché qui se résout pendant qu'on le cote
+        # transforme la position en pari : elle ne vaut plus un prix mais un
+        # résultat, et quatre l'ont prouvé en tombant à zéro.
+        heures = _hours_until(getattr(market, "end_date", None), now)
+        if heures is None:
+            # Une échéance illisible n'est pas une échéance lointaine. Sur ce
+            # filtre-là, le doute doit faire renoncer.
+            rejets.append((condition_id, "échéance illisible — on ne cote pas"))
+            continue
+        if heures < MIN_HOURS_TO_RESOLUTION:
+            rejets.append(
+                (condition_id, f"résolution dans {heures:.1f} h — pari, pas cotation")
             )
             continue
 

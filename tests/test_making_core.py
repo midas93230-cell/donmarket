@@ -7,11 +7,13 @@ où poser de l'argent doit être vérifiable sans place de marché en face.
 from __future__ import annotations
 
 from dataclasses import dataclass, field
+from datetime import datetime, timedelta, timezone
 
 import pytest
 
 from donmarket.making.core import (
     MAX_SPREAD_TICKS,
+    MIN_HOURS_TO_RESOLUTION,
     MIN_DEPTH_SHARES,
     DesiredOrder,
     Inventory,
@@ -36,6 +38,10 @@ class _Carnet:
     asks: tuple = field(default_factory=tuple)
 
 
+MAINTENANT = datetime(2026, 8, 21, 20, 0, tzinfo=timezone.utc)
+LOINTAIN = MAINTENANT + timedelta(days=30)
+
+
 @dataclass(frozen=True)
 class _Marche:
     condition_id: str = "0xC"
@@ -47,6 +53,10 @@ class _Marche:
     # le volume, et un defaut a zero les ferait tous echouer pour la mauvaise
     # raison.
     volume_24h: float = 100_000.0
+    # Echeance lointaine par defaut : les tests d ecart et de profondeur ne
+    # portent pas sur elle, et une valeur nulle les ferait echouer pour la
+    # mauvaise raison.
+    end_date: object = LOINTAIN
 
 
 def _carnet(bid: float, ask: float, taille: float = 100.0) -> _Carnet:
@@ -60,7 +70,7 @@ def _carnet(bid: float, ask: float, taille: float = 100.0) -> _Carnet:
 
 
 def test_un_ecart_dun_seul_pas_est_ecarte() -> None:
-    rungs, rejets = eligible([_Marche()], {"t1": _carnet(0.50, 0.51)}, capital_usd=8.73)
+    rungs, rejets = eligible([_Marche()], {"t1": _carnet(0.50, 0.51)}, capital_usd=8.73, now=MAINTENANT)
     assert rungs == []
     assert "rien à capturer" in rejets[0][1]
 
@@ -75,14 +85,14 @@ def test_un_ecart_beant_est_ecarte_et_cest_le_piege_principal() -> None:
     """
     rungs, rejets = eligible(
         [_Marche()], {"t1": _carnet(0.20, 0.20 + (MAX_SPREAD_TICKS + 5) * 0.01)},
-        capital_usd=8.73,
+        capital_usd=8.73, now=MAINTENANT,
     )
     assert rungs == []
     assert "béant" in rejets[0][1]
 
 
 def test_un_prix_extreme_est_ecarte() -> None:
-    rungs, rejets = eligible([_Marche()], {"t1": _carnet(0.02, 0.06)}, capital_usd=8.73)
+    rungs, rejets = eligible([_Marche()], {"t1": _carnet(0.02, 0.06)}, capital_usd=8.73, now=MAINTENANT)
     assert rungs == []
     assert "hors bande" in rejets[0][1]
 
@@ -91,7 +101,7 @@ def test_un_carnet_sans_contrepartie_est_ecarte() -> None:
     """Sans taille en face, on ne peut ni être rempli à l'achat ni ressortir."""
     rungs, rejets = eligible(
         [_Marche()], {"t1": _carnet(0.50, 0.53, taille=MIN_DEPTH_SHARES - 1)},
-        capital_usd=8.73,
+        capital_usd=8.73, now=MAINTENANT,
     )
     assert rungs == []
     assert "contrepartie" in rejets[0][1]
@@ -107,13 +117,13 @@ def test_la_profondeur_se_lit_au_MEILLEUR_prix_pas_au_pire() -> None:
         bids=(_Niveau(0.45, 999.0), _Niveau(0.50, 1.0)),
         asks=(_Niveau(0.58, 999.0), _Niveau(0.53, 1.0)),
     )
-    rungs, rejets = eligible([_Marche()], {"t1": creux}, capital_usd=8.73)
+    rungs, rejets = eligible([_Marche()], {"t1": creux}, capital_usd=8.73, now=MAINTENANT)
     assert rungs == [], "la profondeur a été lue au pire prix"
     assert "contrepartie" in rejets[0][1]
 
 
 def test_une_branche_saine_est_retenue_avec_son_ticket() -> None:
-    rungs, _ = eligible([_Marche()], {"t1": _carnet(0.20, 0.24)}, capital_usd=8.73)
+    rungs, _ = eligible([_Marche()], {"t1": _carnet(0.20, 0.24)}, capital_usd=8.73, now=MAINTENANT)
     assert len(rungs) == 1
     rung = rungs[0]
     assert rung.buy_price == 0.20 and rung.sell_price == 0.24
@@ -122,7 +132,7 @@ def test_une_branche_saine_est_retenue_avec_son_ticket() -> None:
 
 
 def test_un_ticket_au_dessus_du_capital_est_ecarte() -> None:
-    rungs, rejets = eligible([_Marche()], {"t1": _carnet(0.50, 0.54)}, capital_usd=1.0)
+    rungs, rejets = eligible([_Marche()], {"t1": _carnet(0.50, 0.54)}, capital_usd=1.0, now=MAINTENANT)
     assert rungs == []
     assert "capital" in rejets[0][1]
 
@@ -133,7 +143,7 @@ def test_le_classement_met_le_meilleur_gain_devant() -> None:
         _Marche(condition_id="0xB", token_ids=("tB",)),
     ]
     carnets = {"tA": _carnet(0.50, 0.53), "tB": _carnet(0.20, 0.24)}
-    rungs, _ = eligible(marches, carnets, capital_usd=8.73)
+    rungs, _ = eligible(marches, carnets, capital_usd=8.73, now=MAINTENANT)
     assert [r.token_id for r in rungs] == ["tB", "tA"]
 
 
@@ -141,7 +151,7 @@ def test_le_classement_met_le_meilleur_gain_devant() -> None:
 
 
 def _rungs(bid=0.20, ask=0.24):
-    rungs, _ = eligible([_Marche()], {"t1": _carnet(bid, ask)}, capital_usd=8.73)
+    rungs, _ = eligible([_Marche()], {"t1": _carnet(bid, ask)}, capital_usd=8.73, now=MAINTENANT)
     return rungs
 
 
@@ -196,7 +206,7 @@ def test_un_notionnel_trop_petit_ne_produit_pas_dordre() -> None:
 def test_le_nombre_de_marches_est_plafonne() -> None:
     marches = [_Marche(condition_id=f"0x{i}", token_ids=(f"t{i}",)) for i in range(5)]
     carnets = {f"t{i}": _carnet(0.20, 0.24) for i in range(5)}
-    rungs, _ = eligible(marches, carnets, capital_usd=8.73)
+    rungs, _ = eligible(marches, carnets, capital_usd=8.73, now=MAINTENANT)
     ordres = plan(rungs, Inventory(), notional_per_market=2.0, max_markets=2)
     assert len(ordres) == 2
 
@@ -233,7 +243,7 @@ def test_un_marche_endormi_est_ecarte() -> None:
 def test_un_marche_actif_reste_retenu() -> None:
     actif = _Marche()
     object.__setattr__(actif, "volume_24h", 50_000.0)
-    rungs, _ = eligible([actif], {"t1": _carnet(0.20, 0.24)}, capital_usd=8.73)
+    rungs, _ = eligible([actif], {"t1": _carnet(0.20, 0.24)}, capital_usd=8.73, now=MAINTENANT)
     assert len(rungs) == 1
 
 
@@ -243,7 +253,7 @@ def test_un_marche_actif_reste_retenu() -> None:
 def test_par_defaut_on_rejoint_la_file_au_meilleur_prix() -> None:
     """Comportement historique, conserve par defaut : l'ecart entier est
     preserve, mais on passe DERRIERE tous ceux deja en file."""
-    rungs, _ = eligible([_Marche()], {"t1": _carnet(0.20, 0.26)}, capital_usd=8.73)
+    rungs, _ = eligible([_Marche()], {"t1": _carnet(0.20, 0.26)}, capital_usd=8.73, now=MAINTENANT)
     assert rungs[0].buy_price == 0.20 and rungs[0].sell_price == 0.26
 
 
@@ -274,3 +284,50 @@ def test_une_amelioration_trop_agressive_est_refusee() -> None:
     )
     assert rungs == []
     assert "croisent" in rejets[0][1]
+
+
+# --- Echeance : la mesure la plus chere du projet ---------------------------
+
+def _marche_echeance(heures: float):
+    m = _Marche()
+    object.__setattr__(m, "end_date", MAINTENANT + timedelta(hours=heures))
+    return m
+
+
+def test_un_marche_qui_se_resout_bientot_est_ecarte() -> None:
+    """MESURE DU 2026-08-21, et elle a coute 10 $ sur 16.
+
+    La boucle a achete sept positions en cinq heures ; QUATRE sont tombees a
+    zero parce que le marche s'est resolu -- un match de Dota, un de foot, un
+    tournoi CS2. Achetees a 0,11-0,13, revenues a 0,00.
+
+    La tenue de marche suppose de pouvoir REVENDRE. Un marche qui se resout
+    pendant qu'on le cote ne le permet pas : la position ne vaut plus un prix,
+    elle vaut un resultat.
+    """
+    rungs, rejets = eligible(
+        [_marche_echeance(1.0)], {"t1": _carnet(0.20, 0.24)},
+        capital_usd=8.73, now=MAINTENANT,
+    )
+    assert rungs == []
+    assert "pari" in rejets[0][1]
+
+
+def test_un_marche_a_echeance_lointaine_reste_cotable() -> None:
+    rungs, _ = eligible(
+        [_marche_echeance(MIN_HOURS_TO_RESOLUTION + 10)],
+        {"t1": _carnet(0.20, 0.24)}, capital_usd=8.73, now=MAINTENANT,
+    )
+    assert len(rungs) == 1
+
+
+def test_une_echeance_illisible_fait_renoncer() -> None:
+    """Sur CE filtre, le doute doit faire renoncer. Une valeur optimiste par
+    defaut ferait coter precisement les marches dont on ignore la fermeture."""
+    muet = _Marche()
+    object.__setattr__(muet, "end_date", None)
+    rungs, rejets = eligible(
+        [muet], {"t1": _carnet(0.20, 0.24)}, capital_usd=8.73, now=MAINTENANT
+    )
+    assert rungs == []
+    assert "illisible" in rejets[0][1]
