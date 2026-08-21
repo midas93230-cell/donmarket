@@ -128,6 +128,7 @@ def eligible(
     books: Mapping[str, object],
     *,
     capital_usd: float,
+    improve_ticks: int = 0,
 ) -> tuple[list[Rung], list[tuple[str, str]]]:
     """Les branches cotables, et le motif de chaque écartée.
 
@@ -199,15 +200,35 @@ def eligible(
                 )
                 continue
 
+            # REJOINDRE la file au meilleur prix, ou l'AMÉLIORER d'un pas.
+            #
+            # Rejoindre préserve l'écart entier mais nous met DERRIÈRE tous
+            # ceux déjà là : on n'est servi que lorsqu'ils le sont tous.
+            # Améliorer d'un pas nous met en tête et coûte un pas d'écart —
+            # sur un écart de 5 pas, c'est 20 % du gain contre la priorité.
+            #
+            # Le choix n'est pas tranché par le raisonnement mais par la
+            # mesure, et elle n'est pas encore faite : d'où un paramètre, et
+            # non une valeur en dur. Par défaut on rejoint, ce qui est le
+            # comportement déjà observé.
+            prix_achat = bid + (improve_ticks * tick)
+            prix_vente = ask - (improve_ticks * tick)
+            if prix_achat >= prix_vente:
+                # Améliorer des deux côtés peut refermer l'écart au point de
+                # se croiser soi-même. Le refuser vaut mieux que de payer
+                # l'écart au lieu de l'encaisser.
+                rejets.append(
+                    (condition_id, "amélioration trop agressive — les deux côtés se croisent")
+                )
+                continue
+
             retenues.append(
                 Rung(
                     condition_id=condition_id,
                     token_id=token_id,
                     question=question,
-                    # On REJOINT la file au meilleur prix. L'améliorer d'un pas
-                    # resserrerait l'écart qu'on cherche justement à encaisser.
-                    buy_price=round(bid, 4),
-                    sell_price=round(ask, 4),
+                    buy_price=round(prix_achat, 4),
+                    sell_price=round(prix_vente, 4),
                     ticket_usd=ticket,
                     spread_ticks=spread_ticks,
                 )

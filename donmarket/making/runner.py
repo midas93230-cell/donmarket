@@ -231,6 +231,7 @@ def run_making(
     interval_s: float,
     max_markets: int,
     armed: bool,
+    expiration: int | None = None,
     sleep=time.sleep,
     now=time.monotonic,
 ) -> MakingReport:
@@ -309,6 +310,14 @@ def run_making(
                         # Non négociable : un teneur qui traverse l'écart
                         # devient preneur et paie au lieu d'éviter.
                         post_only=True,
+                        # FILET DE SÉCURITÉ. Le nettoyage du `finally` ne
+                        # s'exécute pas si la machine s'éteint ou se met en
+                        # veille : les ordres survivraient alors à la boucle
+                        # qui les surveillait, et pourraient se remplir sans
+                        # que personne n'ait décidé de garder la position.
+                        # Une expiration alignée sur la fin de la course les
+                        # fait mourir seuls, quoi qu'il arrive au processus.
+                        expiration=expiration,
                     )
                 except Exception as exc:  # noqa: BLE001
                     logger.warning("ordre non passé sur %s : %s", ordre.token_id[:12], exc)

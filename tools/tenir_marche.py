@@ -17,6 +17,7 @@ from __future__ import annotations
 import argparse
 import asyncio
 import logging
+import time
 import os
 import sys
 
@@ -26,7 +27,7 @@ logging.basicConfig(level=logging.INFO, format="%(asctime)s  %(levelname)-7s %(m
 logging.getLogger("httpx").setLevel(logging.WARNING)
 
 
-def lire_univers(capital: float):
+def lire_univers(capital: float, improve_ticks: int = 0):
     """Rend (branches cotables, motifs de rejet). Synchrone pour la boucle.
 
     La lecture est asynchrone et lente -- 2100 marches, 4200 carnets, une
@@ -41,7 +42,10 @@ def lire_univers(capital: float):
         negociables = [m for m in marches if m.is_tradable]
         jetons = [t for m in negociables for t in m.token_ids]
         carnets = await clob.fetch_books(jetons)
-        return eligible(negociables, carnets, capital_usd=capital)
+        return eligible(
+            negociables, carnets, capital_usd=capital,
+            improve_ticks=improve_ticks,
+        )
 
     return asyncio.run(_lire())
 
@@ -58,6 +62,14 @@ def main() -> int:
     parser.add_argument("--minutes", type=float, default=30.0)
     parser.add_argument("--interval", type=float, default=60.0)
     parser.add_argument("--max-markets", type=int, default=2)
+    parser.add_argument(
+        "--improve", type=int, default=0,
+        help=(
+            "ameliorer le meilleur prix de N pas pour passer devant la "
+            "file. Coute N pas d ecart et achete la priorite -- arbitrage "
+            "que seule la mesure du remplissage peut trancher."
+        ),
+    )
     parser.add_argument("--arm", action="store_true")
     args = parser.parse_args()
 
@@ -82,12 +94,17 @@ def main() -> int:
 
     rapport = run_making(
         client,
-        lambda: lire_univers(args.bankroll / max(args.max_markets, 1)),
+        lambda: lire_univers(
+            args.bankroll / max(args.max_markets, 1), args.improve
+        ),
         bankroll=args.bankroll,
         minutes=args.minutes,
         interval_s=args.interval,
         max_markets=args.max_markets,
         armed=args.arm,
+        # Aucun ordre ne survit a la course qui l a pose, meme si la
+        # machine s eteint avant le nettoyage.
+        expiration=int(time.time() + args.minutes * 60) + 60,
     )
 
     print(f"\n{rapport.ticks} tour(s)")

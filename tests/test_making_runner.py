@@ -156,8 +156,10 @@ class _ClientDouble:
     def list_positions(self):
         return self.positions
 
-    def place_limit_order(self, *, token_id, price, size, side, post_only=False):
-        self.poses.append((token_id, price, size, side, post_only))
+    def place_limit_order(
+        self, *, token_id, price, size, side, post_only=False, expiration=None
+    ):
+        self.poses.append((token_id, price, size, side, post_only, expiration))
         return _Recu(ok=self.ok, order_id=f"O-{len(self.poses)}")
 
     def cancel_orders(self, *, order_ids):
@@ -274,3 +276,19 @@ def test_le_seuil_est_reglable() -> None:
         nous=frozenset({"O-1"}), hysteresis_ticks=10,
     )
     assert poser == [] and len(garder) == 1
+
+
+def test_chaque_ordre_porte_lexpiration_demandee() -> None:
+    """FILET DE SECURITE. Le nettoyage du `finally` ne s'execute pas si la
+    machine s'eteint ou se met en veille : les ordres survivraient alors a la
+    boucle qui les surveillait, et pourraient se remplir sans que personne
+    n'ait decide de garder la position. Une expiration les fait mourir seuls,
+    quoi qu'il arrive au processus."""
+    client = _ClientDouble()
+    run_making(
+        client, _source(), bankroll=4.0, minutes=1, interval_s=30,
+        max_markets=2, armed=True, expiration=1_800_000_000,
+        sleep=lambda _s: None, now=_horloge(),
+    )
+    assert client.poses, "aucun ordre pose"
+    assert all(pose[5] == 1_800_000_000 for pose in client.poses)

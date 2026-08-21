@@ -235,3 +235,42 @@ def test_un_marche_actif_reste_retenu() -> None:
     object.__setattr__(actif, "volume_24h", 50_000.0)
     rungs, _ = eligible([actif], {"t1": _carnet(0.20, 0.24)}, capital_usd=8.73)
     assert len(rungs) == 1
+
+
+# --- Priorite dans la file : rejoindre ou ameliorer -------------------------
+
+
+def test_par_defaut_on_rejoint_la_file_au_meilleur_prix() -> None:
+    """Comportement historique, conserve par defaut : l'ecart entier est
+    preserve, mais on passe DERRIERE tous ceux deja en file."""
+    rungs, _ = eligible([_Marche()], {"t1": _carnet(0.20, 0.26)}, capital_usd=8.73)
+    assert rungs[0].buy_price == 0.20 and rungs[0].sell_price == 0.26
+
+
+def test_ameliorer_dun_pas_prend_la_priorite_et_coute_un_pas() -> None:
+    """Le choix n'est pas tranche par le raisonnement mais par la mesure.
+
+    Sur un ecart de 6 pas, ameliorer des deux cotes coute 2 pas -- un tiers du
+    gain -- contre la priorite dans la file. Ca peut valoir tres cher ou rien
+    du tout selon le taux de remplissage, qui n'est pas encore connu. D'ou un
+    parametre plutot qu'une valeur en dur.
+    """
+    rungs, _ = eligible(
+        [_Marche()], {"t1": _carnet(0.20, 0.26)}, capital_usd=8.73, improve_ticks=1
+    )
+    assert rungs[0].buy_price == pytest.approx(0.21)
+    assert rungs[0].sell_price == pytest.approx(0.25)
+    # Le gain brut diminue : c'est le prix de la priorite, et il doit se voir.
+    assert rungs[0].gross_edge < (0.06 / 0.20)
+
+
+def test_une_amelioration_trop_agressive_est_refusee() -> None:
+    """ANCRAGE DE SECURITE. Ameliorer des deux cotes peut refermer l'ecart au
+    point de se croiser SOI-MEME : le carnet nous apparie contre nous et on
+    PAIE l'ecart au lieu de l'encaisser. C'est le seul cas ou la strategie perd
+    de facon garantie -- mieux vaut ne pas coter."""
+    rungs, rejets = eligible(
+        [_Marche()], {"t1": _carnet(0.20, 0.24)}, capital_usd=8.73, improve_ticks=2
+    )
+    assert rungs == []
+    assert "croisent" in rejets[0][1]
