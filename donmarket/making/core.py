@@ -302,6 +302,60 @@ class DesiredOrder:
         return self.price * self.size
 
 
+def exits(
+    inventory: Inventory,
+    books: Mapping[str, object],
+    *,
+    min_order_size: float = 5.0,
+) -> tuple[list[DesiredOrder], list[tuple[str, str]]]:
+    """Un ordre de VENTE pour CHAQUE position détenue, sans condition.
+
+    LA CORRECTION LA PLUS IMPORTANTE DU MODULE, écrite le 2026-08-21 après une
+    perte de 10 $ sur 16.
+
+    `plan()` ne parcourait que les branches ÉLIGIBLES. Or une position dont le
+    marché sort des filtres — échéance qui approche, écart qui se resserre,
+    volume qui tombe — disparaît de cette liste et ne reçoit donc JAMAIS d'ordre
+    de vente. Elle devient orpheline, et sur un marché de prédiction une
+    position orpheline finit par valoir 0 ou 1. Quatre l'ont fait le même jour.
+
+    L'ÉLIGIBILITÉ GOUVERNE L'ACHAT, JAMAIS LA SORTIE. Les critères qui disent
+    « ce marché ne vaut pas qu'on y entre » n'ont rien à dire sur « il faut en
+    ressortir » — au contraire, la plupart d'entre eux sont des raisons de
+    sortir plus vite.
+
+    Sans carnet lisible, la position est SIGNALÉE plutôt que passée sous
+    silence : c'est une position qu'on ne sait pas solder, et le taire
+    reviendrait à l'abandonner une seconde fois.
+    """
+    ordres: list[DesiredOrder] = []
+    problemes: list[tuple[str, str]] = []
+
+    for token_id, parts in inventory.shares.items():
+        if parts <= 0:
+            continue
+        if parts < min_order_size:
+            problemes.append(
+                (token_id, f"{parts:.2f} parts sous le minimum — invendable tel quel")
+            )
+            continue
+        book = books.get(token_id)
+        ask = getattr(book, "best_ask", None) if book is not None else None
+        if ask is None:
+            problemes.append((token_id, "carnet illisible — sortie impossible"))
+            continue
+        ordres.append(
+            DesiredOrder(
+                condition_id="",
+                token_id=token_id,
+                side="SELL",
+                price=round(float(ask), 4),
+                size=parts,
+            )
+        )
+    return ordres, problemes
+
+
 def plan(
     rungs: Sequence[Rung],
     inventory: Inventory,

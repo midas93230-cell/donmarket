@@ -331,3 +331,52 @@ def test_une_echeance_illisible_fait_renoncer() -> None:
     )
     assert rungs == []
     assert "illisible" in rejets[0][1]
+
+
+# --- Sorties : la correction la plus importante -----------------------------
+
+
+def test_toute_position_recoit_un_ordre_de_vente() -> None:
+    """LA CORRECTION QUI A COUTE 10 $ SUR 16.
+
+    `plan()` ne parcourait que les branches ELIGIBLES. Une position dont le
+    marche sort des filtres -- echeance qui approche, ecart qui se resserre,
+    volume qui tombe -- disparait de cette liste et ne recoit donc JAMAIS
+    d'ordre de vente. Elle devient orpheline, et sur un marche de prediction
+    une position orpheline finit par valoir 0 ou 1. Quatre l'ont fait le meme
+    jour.
+
+    L'eligibilite gouverne l'ACHAT, jamais la SORTIE.
+    """
+    from donmarket.making.core import exits
+
+    inv = Inventory()
+    inv.add("t-orphelin", 20.0)
+    # Aucune branche eligible pour ce jeton : le carnet suffit.
+    ordres, soucis = exits(inv, {"t-orphelin": _carnet(0.30, 0.34)})
+    assert soucis == []
+    assert len(ordres) == 1
+    assert ordres[0].side == "SELL" and ordres[0].price == 0.34
+    assert ordres[0].size == pytest.approx(20.0)
+
+
+def test_une_position_sans_carnet_est_signalee_pas_oubliee() -> None:
+    """Une position qu'on ne sait pas solder doit etre DITE. La taire
+    reviendrait a l'abandonner une seconde fois."""
+    from donmarket.making.core import exits
+
+    inv = Inventory()
+    inv.add("t-muet", 20.0)
+    ordres, soucis = exits(inv, {})
+    assert ordres == []
+    assert soucis and "sortie impossible" in soucis[0][1]
+
+
+def test_un_reliquat_sous_le_minimum_est_signale() -> None:
+    from donmarket.making.core import exits
+
+    inv = Inventory()
+    inv.add("t1", 2.0)
+    ordres, soucis = exits(inv, {"t1": _carnet(0.30, 0.34)})
+    assert ordres == []
+    assert soucis and "invendable" in soucis[0][1]

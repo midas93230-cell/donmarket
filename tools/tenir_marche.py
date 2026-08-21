@@ -42,10 +42,13 @@ def lire_univers(capital: float, improve_ticks: int = 0):
         negociables = [m for m in marches if m.is_tradable]
         jetons = [t for m in negociables for t in m.token_ids]
         carnets = await clob.fetch_books(jetons)
-        return eligible(
+        rungs, rejets = eligible(
             negociables, carnets, capital_usd=capital,
             improve_ticks=improve_ticks,
         )
+        # Les carnets remontent avec : la boucle en a besoin pour coter la
+        # SORTIE de positions devenues non eligibles, absentes de `rungs`.
+        return rungs, rejets, carnets
 
     return asyncio.run(_lire())
 
@@ -113,6 +116,14 @@ def main() -> int:
     print(f"  annules               : {rapport.cancelled}")
     print(f"  conserves en file     : {rapport.kept}")
     print(f"  ordres etrangers vus  : {rapport.foreign_seen}  (laisses intacts)")
+
+    if rapport.stranded:
+        # Dit fort : une position qu'on ne sait pas solder est une position
+        # abandonnee, et c'est exactement ce qui a coute 10 $ le 2026-08-21.
+        print(f"\n{len(rapport.stranded)} POSITION(S) NON SOLDABLE(S) :")
+        for jeton in rapport.stranded:
+            print(f"  {jeton[:24]}...")
+        print("  Carnet illisible ou reliquat sous le minimum d'ordre.")
 
     if rapport.problem:
         # Dit AVANT tout chiffre : une boucle qui s'est abstenue n'a pas

@@ -167,8 +167,15 @@ class _ClientDouble:
         return None
 
 
-def _source(rungs=None):
-    return lambda: (rungs if rungs is not None else [_rung()], [])
+def _source(rungs=None, carnets=None):
+    """La source rend (branches, rejets, CARNETS) depuis le 2026-08-21 : les
+    sorties doivent pouvoir etre cotees pour des positions dont le marche n est
+    plus eligible, donc absentes des branches."""
+    return lambda: (
+        rungs if rungs is not None else [_rung()],
+        [],
+        carnets or {},
+    )
 
 
 def _horloge():

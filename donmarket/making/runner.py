@@ -45,7 +45,7 @@ import time
 from dataclasses import dataclass, field
 from typing import Sequence
 
-from .core import DesiredOrder, Inventory, Rung, eligible, plan
+from .core import DesiredOrder, Inventory, Rung, eligible, exits, plan
 
 logger = logging.getLogger(__name__)
 
@@ -92,6 +92,9 @@ class MakingReport:
     rejects: tuple[tuple[str, str], ...] = ()
     problem: str | None = None
     left_open: tuple[str, ...] = ()
+    # Positions qu on ne sait pas solder : carnet illisible, ou reliquat sous
+    # le minimum d ordre. Les taire reviendrait a les abandonner une 2e fois.
+    stranded: tuple[str, ...] = ()
 
 
 def reconcile(
@@ -262,7 +265,10 @@ def run_making(
             rapport.ticks += 1
             try:
                 rungs: list[Rung]
-                rungs, rejets = rungs_source()
+                # La source rend AUSSI les carnets :  doit pouvoir
+                # coter la sortie de positions dont le marche n est plus
+                # eligible, donc absentes de .
+                rungs, rejets, carnets = rungs_source()
                 rapport.rejects = tuple(rejets[:20])
                 vivants = read_live_orders(flatten(client.list_open_orders()))
                 inventaire, motif = read_inventory(flatten(client.list_positions()))
@@ -280,12 +286,26 @@ def run_making(
                 rapport.problem = motif
                 voulus: list[DesiredOrder] = []
             else:
-                voulus = plan(
+                # LES SORTIES D'ABORD, et SANS CONDITION. Une position dont le
+                # marché n'est plus éligible ne figure pas dans `rungs` et ne
+                # recevrait donc jamais d'ordre de vente : c'est ainsi que
+                # quatre positions sont tombées à zéro le 2026-08-21.
+                # L'éligibilité gouverne l'achat, jamais la sortie.
+                sorties, soucis = exits(inventaire, carnets)
+                for jeton, souci in soucis:
+                    logger.error("position %s : %s", jeton[:12], souci)
+                rapport.stranded = tuple(j for j, _ in soucis)
+
+                achats = plan(
                     rungs,
                     inventaire,
                     notional_per_market=par_marche,
                     max_markets=max_markets,
                 )
+                # `plan` propose aussi des ventes pour les branches éligibles,
+                # que les sorties couvrent déjà. On ne garde que les ACHATS,
+                # sinon la même branche recevrait deux ordres de vente.
+                voulus = sorties + [o for o in achats if o.side.upper() == "BUY"]
 
             etrangers = [o for o in vivants if o.order_id not in a_nous]
             rapport.foreign_seen = len(etrangers)
