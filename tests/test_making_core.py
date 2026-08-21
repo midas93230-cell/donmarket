@@ -43,6 +43,10 @@ class _Marche:
     token_ids: tuple = ("t1",)
     min_order_size: float = 5.0
     min_tick_size: float = 0.01
+    # Actif par defaut : les tests d ecart et de profondeur ne portent pas sur
+    # le volume, et un defaut a zero les ferait tous echouer pour la mauvaise
+    # raison.
+    volume_24h: float = 100_000.0
 
 
 def _carnet(bid: float, ask: float, taille: float = 100.0) -> _Carnet:
@@ -202,3 +206,32 @@ def test_le_cout_dun_ordre_est_prix_fois_taille() -> None:
         condition_id="0xC", token_id="t1", side="BUY", price=0.20, size=10.0
     )
     assert ordre.cost_usd == pytest.approx(2.0)
+
+
+# --- Volume : le piege du carnet LENT --------------------------------------
+
+
+def test_un_marche_endormi_est_ecarte() -> None:
+    """MESURE DU 2026-08-21, et elle a coute une nuit. Un ordre pose au
+    meilleur bid sur « Somaliland join the Abraham Accords » a passe QUATORZE
+    HEURES au carnet sans le moindre remplissage.
+
+    Le carnet n'etait pas vide : profondeur des deux cotes, ecart de 8 pas. Il
+    etait LENT. C'est le piege suivant celui du carnet beant, et il est plus
+    sournois -- un ecart large signale souvent qu'il ne se passe rien, puisque
+    personne ne vient le resserrer.
+    """
+    endormi = _Marche()
+    object.__setattr__(endormi, "volume_24h", 10.0)
+    rungs, rejets = eligible(
+        [endormi], {"t1": _carnet(0.20, 0.24)}, capital_usd=8.73
+    )
+    assert rungs == []
+    assert "endormi" in rejets[0][1]
+
+
+def test_un_marche_actif_reste_retenu() -> None:
+    actif = _Marche()
+    object.__setattr__(actif, "volume_24h", 50_000.0)
+    rungs, _ = eligible([actif], {"t1": _carnet(0.20, 0.24)}, capital_usd=8.73)
+    assert len(rungs) == 1

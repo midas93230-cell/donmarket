@@ -58,6 +58,20 @@ MAX_PRICE = 0.90
 # Parts présentes de chaque côté pour qu'on parle de contrepartie.
 MIN_DEPTH_SHARES = 20.0
 
+# Volume échangé sur 24 h, en dollars. MESURÉ le 2026-08-21 : un ordre posé au
+# meilleur bid sur « Somaliland join the Abraham Accords » a passé QUATORZE
+# HEURES au carnet sans le moindre remplissage. Le carnet n'était pas vide — il
+# avait de la profondeur des deux côtés et un écart de 8 pas — il était LENT.
+#
+# C'est le piège suivant celui du carnet béant, et il est plus sournois : un
+# écart large signale souvent qu'il ne se passe rien, puisque personne ne vient
+# le resserrer. Un écart de 2 pas rempli dix fois par jour vaut mieux qu'un
+# écart de 8 pas jamais servi.
+#
+# Le seuil est bas volontairement : à ce capital on ne cherche pas les marchés
+# les plus actifs, seulement à éliminer ceux où il ne se passe RIEN.
+MIN_VOLUME_24H_USD = 500.0
+
 
 @dataclass(frozen=True)
 class Rung:
@@ -128,6 +142,16 @@ def eligible(
         question = str(getattr(market, "question", "") or "")
         tick = float(getattr(market, "min_tick_size", 0.0) or DEFAULT_TICK)
         min_size = max(float(getattr(market, "min_order_size", 0.0) or 0.0), 1.0)
+
+        # Un marché sans activité récente ne servira personne, quel que soit
+        # son écart. Filtré AVANT les carnets : inutile de lire deux carnets
+        # pour un marché où rien ne se passe.
+        volume_24h = float(getattr(market, "volume_24h", 0.0) or 0.0)
+        if volume_24h < MIN_VOLUME_24H_USD:
+            rejets.append(
+                (condition_id, f"{volume_24h:.0f} $ sur 24 h — marché endormi")
+            )
+            continue
 
         for token_id in getattr(market, "token_ids", ()):
             book = books.get(token_id)
