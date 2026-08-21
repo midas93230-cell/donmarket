@@ -292,3 +292,23 @@ def test_chaque_ordre_porte_lexpiration_demandee() -> None:
     )
     assert client.poses, "aucun ordre pose"
     assert all(pose[5] == 1_800_000_000 for pose in client.poses)
+
+
+@dataclass
+class _PositionReelle:
+    """Forme REELLE d'une position, relevee le 2026-08-21."""
+
+    token_id: str = "t1"
+    size: float = 14.0
+    avg_price: float = 0.13
+
+
+def test_une_position_au_format_reel_est_lue() -> None:
+    """MESURE COUTEUSE. Le lecteur cherchait `asset`/`asset_id` ; le SDK
+    fournit `token_id`. La boucle s'est donc abstenue alors qu'elle detenait
+    deux positions -- dont une gagnante -- et aucune n'a recu d'ordre de vente
+    pendant qu'un match se jouait. « Je n'ai pas su lire » avait le bon
+    comportement, mais pour un nom de champ."""
+    inv, motif = read_inventory([_PositionReelle()])
+    assert motif is None
+    assert inv.held("t1") == pytest.approx(14.0)

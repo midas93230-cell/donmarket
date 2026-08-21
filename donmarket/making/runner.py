@@ -206,7 +206,17 @@ def read_inventory(rows: Sequence[object]) -> tuple[Inventory, str | None]:
     total = 0
     for row in rows:
         total += 1
-        jeton = getattr(row, "asset", None) or getattr(row, "asset_id", None)
+        # `token_id` est le nom RÉEL, mesuré le 2026-08-21 sur les deux
+        # premières positions remplies. Les autres restent essayés : les noms
+        # varient d'une version du SDK à l'autre, et se tromper ici fait
+        # s'abstenir la boucle alors qu'elle détient de quoi revendre — c'est
+        # exactement ce qui est arrivé, et une position gagnante est restée
+        # sans ordre de vente pendant qu'un match se jouait.
+        jeton = (
+            getattr(row, "token_id", None)
+            or getattr(row, "asset", None)
+            or getattr(row, "asset_id", None)
+        )
         parts = getattr(row, "size", None)
         if parts is None:
             parts = getattr(row, "quantity", None)
