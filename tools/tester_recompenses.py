@@ -104,7 +104,8 @@ def meilleur(niveaux):
     return float(niveaux[-1].price) if niveaux else None
 
 
-def selectionner(client, bankroll: float):
+def selectionner(client, bankroll: float, taille: int = TAILLE_ECHANTILLON,
+                 prix_min: float = MIN_PRIX):
     """Rend les candidats finançables ET marquables, les mieux dotes d'abord."""
     from donmarket.making.runner import flatten
 
@@ -116,7 +117,7 @@ def selectionner(client, bankroll: float):
     logger.info("%d marches recompenses actifs (source CLOB, sans limite Gamma)", len(pool))
 
     random.seed(11)
-    echantillon = random.sample(pool, min(TAILLE_ECHANTILLON, len(pool)))
+    echantillon = random.sample(pool, min(taille, len(pool)))
 
     candidats: list[dict] = []
     motifs = {"trop cher": 0, "carnet trop large": 0, "carnet incomplet": 0,
@@ -147,7 +148,7 @@ def selectionner(client, bankroll: float):
             #    parce que la reponse est acquise. Concurrence nulle n'y signale
             #    pas une aubaine mais un desert, exactement comme l'ecart de
             #    28 000 % du 28/07 signalait un carnet vide.
-            if not (MIN_PRIX <= prix <= MAX_PRIX):
+            if not (prix_min <= prix <= MAX_PRIX):
                 motifs["prix extreme"] = motifs.get("prix extreme", 0) + 1
                 continue
             if parts * prix > bankroll:
@@ -167,7 +168,7 @@ def selectionner(client, bankroll: float):
             # qui est plus bas. Le 22/08 l'ecart a suffi a poser un ticket a
             # 0,065 alors que la borne annoncee etait 0,10 -- un garde-fou qui
             # controle une valeur et en laisse partir une autre ne garde rien.
-            if not (MIN_PRIX <= bid <= MAX_PRIX):
+            if not (prix_min <= bid <= MAX_PRIX):
                 motifs["bid hors bande"] = motifs.get("bid hors bande", 0) + 1
                 continue
 
@@ -275,6 +276,25 @@ def main() -> int:
 
     parser = argparse.ArgumentParser()
     parser.add_argument("--bankroll", type=float, required=True)
+    parser.add_argument(
+        "--echantillon", type=int, default=TAILLE_ECHANTILLON,
+        help=(
+            "marches a sonder. LE DEFAUT EST PETIT DEVANT L UNIVERS : 220 sur "
+            "plus de 16 000. Conclure « aucun candidat » sur cet echantillon "
+            "est une faute -- c est 1,4 % du gisement. Elargir des qu on "
+            "cherche un ticket sous un budget serre."
+        ),
+    )
+    parser.add_argument(
+        "--prix-min", type=float, default=MIN_PRIX,
+        help=(
+            "prix plancher du ticket (defaut 0,10). SOUS 0,10 LE BAREME "
+            "PENALISE `Qmin` PAR TROIS -- c'est un arbitrage assume, pas un "
+            "reglage neutre : on accepte le tiers du score pour deployer du "
+            "capital qui dormirait sinon. Le cout d'entree vaut 20 parts x ce "
+            "prix, donc 0,10 impose un ticket d'au moins 2,00 $."
+        ),
+    )
     parser.add_argument("--arm", action="store_true")
     args = parser.parse_args()
 
@@ -288,13 +308,28 @@ def main() -> int:
     print("RECOMPENSES DE LIQUIDITE -- TEST A PETIT CAPITAL")
     print("=" * 74)
 
-    candidats, motifs, taille = selectionner(client, args.bankroll)
+    candidats, motifs, taille = selectionner(
+        client, args.bankroll, args.echantillon, args.prix_min
+    )
 
     print(f"\nEchantillon    : {taille} marches")
     print(f"Retenus        : {len(candidats)}  (finançables a {args.bankroll:.2f} $ ET marquables)")
     print(f"Ecartes        : {motifs}")
 
     if not candidats:
+        # NE JAMAIS ANNONCER UN VERDICT QUAND ON A ETE AVEUGLE.
+        # Le 22/08, un scan a rendu « aucun candidat » alors que QUARANTE
+        # marches avaient passe tous les filtres metier et n'avaient echoue
+        # que sur une panne DNS a la lecture de leur echeance. Le message
+        # affirmait « ce n'est pas une panne, c'est le resultat » : c'etait
+        # faux, et exactement l'erreur que cet outil est cense ne pas commettre.
+        aveugles = motifs.get("echeance illisible", 0) + motifs.get("illisible", 0)
+        if aveugles:
+            print(f"\nAucun candidat RETENU, mais {aveugles} marche(s) n'ont pas "
+                  f"pu etre lus (reseau).")
+            print("CE N'EST DONC PAS UN RESULTAT -- c'est un scan incomplet.")
+            print("Relancer avant d'en conclure quoi que ce soit.")
+            return 2
         print("\nAucun candidat. Ce n'est pas une panne, c'est le resultat.")
         return 1
 
