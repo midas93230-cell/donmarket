@@ -228,8 +228,14 @@ client.place_limit_order(token_id, price, size, side, post_only=True)</code></pr
       <p class="cost">Trap 01 &middot; two days</p>
       <h3>Collateral moved to pUSD. Your USDC is not the collateral.</h3>
       <p>The CLOB reports <code>balance: 0</code> while your wallet visibly holds USDC.e. The reason is that Polymarket migrated to its own collateral token, <b>pUSD</b> (<code>0xc011a7e1&hellip;</code>, 6 decimals), and the archived client&rsquo;s <code>config.py</code> never learned the new exchange addresses. Approvals you set from that config land on contracts nobody uses.</p>
-      <p>pUSD is <b>only minted by Polymarket</b>: the implementation behind its EIP-1967 proxy exposes <code>mint(address,uint256)</code> and nothing else &mdash; no <code>deposit</code>, no <code>wrap</code>, no <code>redeem</code>. There is no contract call that gets you in. The deposit flow in their interface is the only path, not a shortcut around one.</p>
-      <p class="verdict">If your balance reads zero and your wallet says otherwise, stop debugging the client. You are holding the wrong token.</p>
+      <p>The pUSD token itself is <b>minted only by Polymarket</b>: the implementation behind its EIP-1967 proxy exposes <code>mint(address,uint256)</code> and nothing else &mdash; no <code>deposit</code>, no <code>wrap</code>, no <code>redeem</code>. Read that alone and you would conclude the deposit screen is the only way in. It is not. A separate pair of onramp/offramp contracts does the conversion, and both are live on Polygon mainnet:</p>
+      <pre><code>ONRAMP   0x93070a847efEf7F70739046A929D47a521F5B8ee
+         wrap(address,address,uint256)     selector 0x62355638
+
+OFFRAMP  0x2957922Eb93258b93368531d39fAcCA3B4dC5854
+         unwrap(address,address,uint256)   selector 0x8cc7104f</code></pre>
+      <p>We checked both: 2,651 and 2,653 bytes of code respectively, each carrying the matching selector in its bytecode. Credit for the addresses goes to <a href="https://github.com/Polymarket/py-sdk/issues/261">py-sdk#261</a> &mdash; we verified them on chain, we did not discover them. As of writing that request is open and unanswered, so the SDK gives you no wrapper for either call yet.</p>
+      <p class="verdict">If your balance reads zero and your wallet says otherwise, stop debugging the client. You are holding the wrong token &mdash; and there is a contract that fixes that.</p>
     </div>
 
     <div class="trap">
