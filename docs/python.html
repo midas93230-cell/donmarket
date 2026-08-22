@@ -1,0 +1,286 @@
+<title>Polymarket Python Traps</title>
+<style>
+  :root{
+    --ground:#F4F6F9; --surface:#FFFFFF; --surface-2:#EAEFF5;
+    --ink:#111820; --ink-2:#485664; --ink-3:#7A8794;
+    --rule:#D8E0E8; --rule-strong:#B9C5D1;
+    --brass:#8A5E10; --brass-fill:#EEE1C2;
+    --teal:#245F5F; --teal-fill:#D5E6E4;
+    --alarm:#A5362B; --alarm-fill:#F6DED9;
+    --shadow:0 1px 2px rgba(17,24,32,.06),0 8px 24px -16px rgba(17,24,32,.28);
+    --display:Georgia,'Iowan Old Style','Times New Roman',serif;
+    --body:system-ui,-apple-system,'Segoe UI',Roboto,sans-serif;
+    --data:ui-monospace,SFMono-Regular,'SF Mono',Consolas,'Liberation Mono',monospace;
+  }
+  @media (prefers-color-scheme:dark){
+    :root:not([data-theme="light"]){
+      --ground:#0E1319; --surface:#161D25; --surface-2:#1E262F;
+      --ink:#E9EEF3; --ink-2:#A5B1BE; --ink-3:#6D7B89;
+      --rule:#28313B; --rule-strong:#3A4652;
+      --brass:#E3B155; --brass-fill:#3B2F14;
+      --teal:#63B2AE; --teal-fill:#123130;
+      --alarm:#E27F70; --alarm-fill:#3C201C;
+      --shadow:0 1px 2px rgba(0,0,0,.4),0 8px 24px -16px rgba(0,0,0,.8);
+    }
+  }
+  :root[data-theme="dark"]{
+    --ground:#0E1319; --surface:#161D25; --surface-2:#1E262F;
+    --ink:#E9EEF3; --ink-2:#A5B1BE; --ink-3:#6D7B89;
+    --rule:#28313B; --rule-strong:#3A4652;
+    --brass:#E3B155; --brass-fill:#3B2F14;
+    --teal:#63B2AE; --teal-fill:#123130;
+    --alarm:#E27F70; --alarm-fill:#3C201C;
+    --shadow:0 1px 2px rgba(0,0,0,.4),0 8px 24px -16px rgba(0,0,0,.8);
+  }
+
+  *{box-sizing:border-box}
+  body{
+    margin:0; background:var(--ground); color:var(--ink);
+    font-family:var(--body); font-size:16px; line-height:1.6;
+    -webkit-font-smoothing:antialiased;
+  }
+  .wrap{max-width:1080px; margin:0 auto; padding:clamp(24px,5vw,64px) clamp(16px,4vw,40px) 80px}
+  .stack{display:flex; flex-direction:column}
+
+  /* ---- masthead ---- */
+  .masthead{gap:18px; padding-bottom:28px; border-bottom:2px solid var(--ink)}
+  .eyebrow{
+    font-family:var(--data); font-size:11px; letter-spacing:.16em;
+    text-transform:uppercase; color:var(--brass); margin:0;
+  }
+  h1{
+    font-family:var(--display); font-weight:400; letter-spacing:-.02em;
+    font-size:clamp(2.6rem,7vw,4.4rem); line-height:1.02; margin:0;
+    text-wrap:balance;
+  }
+  .dek{
+    font-family:var(--display); font-size:clamp(1.05rem,2.3vw,1.3rem);
+    line-height:1.5; color:var(--ink-2); margin:0; max-width:62ch;
+  }
+  .byline{
+    display:flex; flex-wrap:wrap; gap:8px 20px; font-family:var(--data);
+    font-size:11.5px; letter-spacing:.06em; color:var(--ink-3);
+    text-transform:uppercase; margin:0;
+  }
+
+  /* ---- thesis tiles ---- */
+  .thesis{
+    display:grid; grid-template-columns:repeat(auto-fit,minmax(230px,1fr));
+    gap:1px; background:var(--rule); border:1px solid var(--rule);
+    margin:36px 0 0;
+  }
+  .tile{background:var(--surface); padding:22px 20px 20px; display:flex; flex-direction:column; gap:8px}
+  .tile .n{
+    font-family:var(--data); font-variant-numeric:tabular-nums;
+    font-size:clamp(2rem,4.6vw,2.7rem); line-height:1; letter-spacing:-.03em;
+    color:var(--brass); font-weight:600;
+  }
+  .tile .n small{font-size:.44em; letter-spacing:.02em; color:var(--ink-3); font-weight:500}
+  .tile p{margin:0; font-size:14px; line-height:1.5; color:var(--ink-2)}
+  .tile .lab{
+    font-family:var(--data); font-size:10.5px; letter-spacing:.14em;
+    text-transform:uppercase; color:var(--ink-3);
+  }
+
+  /* ---- sections ---- */
+  section{margin-top:56px}
+  h2{
+    font-family:var(--display); font-weight:400; font-size:clamp(1.6rem,3.4vw,2.1rem);
+    letter-spacing:-.015em; margin:0 0 6px; text-wrap:balance;
+  }
+  .sub{margin:0 0 22px; color:var(--ink-2); font-size:15px; max-width:68ch}
+  p{max-width:68ch}
+
+  /* ---- table ---- */
+  .scroller{overflow-x:auto; border:1px solid var(--rule); background:var(--surface); box-shadow:var(--shadow)}
+  table{border-collapse:collapse; width:100%; min-width:840px; font-size:14px}
+  thead th{
+    font-family:var(--data); font-size:10.5px; letter-spacing:.12em; text-transform:uppercase;
+    color:var(--ink-3); font-weight:600; text-align:right; padding:14px 14px 11px;
+    border-bottom:1px solid var(--rule-strong); white-space:nowrap; background:var(--surface-2);
+  }
+  thead th:first-child,thead th.l{text-align:left}
+  tbody td{
+    padding:12px 14px; border-bottom:1px solid var(--rule); text-align:right;
+    font-family:var(--data); font-variant-numeric:tabular-nums; white-space:nowrap;
+  }
+  tbody td.l{text-align:left; font-family:var(--body)}
+  tbody tr:last-child td{border-bottom:none}
+  tbody tr:hover td{background:var(--surface-2)}
+  .name{font-weight:600; letter-spacing:-.005em}
+  .rk{font-family:var(--data); color:var(--ink-3); font-size:12px; width:2.5em; display:inline-block}
+  .rev{color:var(--brass); font-weight:600}
+  .zero{color:var(--ink-3)}
+  .bar{height:4px; background:var(--brass); display:block; margin-top:5px; min-width:1px}
+  .barwrap{display:block; width:120px; margin-left:auto}
+  .delta{font-size:12px; letter-spacing:.02em}
+  .up{color:var(--teal)} .down{color:var(--ink-3)}
+  .chip{
+    display:inline-block; font-family:var(--data); font-size:10px; letter-spacing:.1em;
+    text-transform:uppercase; padding:2px 7px; border:1px solid currentColor;
+    border-radius:2px; margin-left:8px; vertical-align:1px;
+  }
+  .chip.free{color:var(--ink-3)}
+  .chip.over{color:var(--alarm); background:var(--alarm-fill); border-color:var(--alarm)}
+
+  /* ---- callout ---- */
+  .callout{
+    border-left:3px solid var(--alarm); background:var(--alarm-fill);
+    padding:20px 22px; display:flex; flex-direction:column; gap:10px;
+  }
+  .callout h3{
+    margin:0; font-family:var(--display); font-weight:400; font-size:1.25rem; color:var(--ink);
+  }
+  .callout p{margin:0; color:var(--ink-2); font-size:14.5px}
+  .evidence{
+    font-family:var(--data); font-size:12.5px; background:var(--surface);
+    border:1px solid var(--rule); padding:12px 14px; overflow-x:auto;
+    color:var(--ink-2); line-height:1.7;
+  }
+  .evidence b{color:var(--ink)}
+
+  /* ---- method ---- */
+  .method{
+    display:grid; grid-template-columns:repeat(auto-fit,minmax(280px,1fr)); gap:24px;
+  }
+  .card{
+    background:var(--surface); border:1px solid var(--rule); padding:20px 22px;
+    display:flex; flex-direction:column; gap:9px;
+  }
+  .card h3{
+    margin:0; font-family:var(--data); font-size:11px; letter-spacing:.13em;
+    text-transform:uppercase; color:var(--brass); font-weight:600;
+  }
+  .card p{margin:0; font-size:14px; color:var(--ink-2)}
+  .card p b{color:var(--ink)}
+
+  footer{
+    margin-top:64px; padding-top:22px; border-top:1px solid var(--rule);
+    font-family:var(--data); font-size:11.5px; letter-spacing:.05em;
+    color:var(--ink-3); display:flex; flex-wrap:wrap; gap:8px 24px;
+  }
+  a{color:var(--brass)}
+  a:focus-visible,tr:focus-visible{outline:2px solid var(--brass); outline-offset:2px}
+  @media (prefers-reduced-motion:no-preference){
+    .bar{transition:width .5s cubic-bezier(.22,.61,.36,1)}
+  }
+  code{font-family:var(--data);font-size:.88em;background:var(--surface-2);
+       padding:.12em .38em;border-radius:4px;color:var(--ink)}
+  pre{font-family:var(--data);font-size:13px;line-height:1.55;background:var(--surface);
+      border:1px solid var(--rule);border-left:3px solid var(--rule-strong);
+      border-radius:6px;padding:14px 16px;overflow-x:auto;margin:14px 0;color:var(--ink)}
+  pre code{background:none;padding:0}
+  pre.bad{border-left-color:var(--alarm)}
+  pre.good{border-left-color:var(--teal)}
+  .trap{background:var(--surface);border:1px solid var(--rule);border-radius:10px;
+        padding:20px 22px;margin:18px 0;box-shadow:var(--shadow)}
+  .trap h3{margin:0 0 4px;font-family:var(--display);font-size:19px;line-height:1.3}
+  .trap .cost{font-family:var(--data);font-size:11px;letter-spacing:.06em;
+              text-transform:uppercase;color:var(--brass);margin:0 0 12px}
+  .trap p{margin:10px 0;color:var(--ink-2)}
+  .trap p b,.trap p strong{color:var(--ink)}
+  .disclose{background:var(--brass-fill);border:1px solid var(--brass);
+            border-radius:10px;padding:18px 22px;margin:26px 0}
+  .disclose p{color:var(--ink);margin:8px 0}
+  .verdict{font-family:var(--display);font-size:17px;color:var(--ink);
+           border-left:3px solid var(--teal);padding-left:14px;margin:14px 0}
+  footer{margin:56px 0 40px;padding-top:22px;border-top:1px solid var(--rule);
+         color:var(--ink-3);font-size:14px}
+  footer a{color:var(--teal)}
+  a{color:var(--teal)}
+</style>
+
+<div class="wrap">
+
+  <header class="stack masthead">
+    <p class="eyebrow">Polymarket &middot; Field notes</p>
+    <h1>The Python client is archived</h1>
+    <p class="dek">Every order we signed came back <code>invalid order version</code>. The library was not misconfigured &mdash; it was retired, and the last release on PyPI still ships stale contract addresses. Here is the whole migration, and the five traps that cost us three days.</p>
+    <p class="byline">
+      <span>Measured 20&ndash;22 Aug 2026</span>
+      <span>Mainnet, real orders</span>
+      <span>Nothing here is from the docs</span>
+    </p>
+  </header>
+
+  <div class="callout">
+    <p><b>The short version.</b> <code>py-clob-client</code> is archived. Its own README says it is &ldquo;no longer functional, should not be used for new <i>or existing</i> integrations&rdquo;. The final PyPI release (0.34.6) is archived too, and points at exchange contracts Polymarket has moved off. Replace it with <code>polymarket-client</code>. Everything below follows from that one fact.</p>
+  </div>
+
+  <section>
+    <h2>The migration, in one block</h2>
+    <pre class="bad"><code># archived - every order returns "invalid order version"
+pip install py-clob-client
+from py_clob_client.client import ClobClient
+client = ClobClient(host, key=pk, chain_id=137,
+                    signature_type=2, funder=PROXY)</code></pre>
+    <pre class="good"><code>pip install polymarket-client        # the package imports as `polymarket`
+from polymarket import SecureClient
+client = SecureClient.create(private_key=pk, wallet=PROXY)
+client.place_limit_order(token_id, price, size, side, post_only=True)</code></pre>
+    <p class="sub"><code>wallet=</code> replaces the old <code>signature_type</code>/<code>funder</code> pair. Pass the <b>proxy</b> address that actually holds the collateral, not the signing EOA &mdash; they are different accounts, and using the EOA reports a zero balance with no error.</p>
+  </section>
+
+  <section>
+    <h2>Five traps we paid for</h2>
+
+    <div class="trap">
+      <p class="cost">Trap 01 &middot; two days</p>
+      <h3>Collateral moved to pUSD. Your USDC is not the collateral.</h3>
+      <p>The CLOB reports <code>balance: 0</code> while your wallet visibly holds USDC.e. The reason is that Polymarket migrated to its own collateral token, <b>pUSD</b> (<code>0xc011a7e1&hellip;</code>, 6 decimals), and the archived client&rsquo;s <code>config.py</code> never learned the new exchange addresses. Approvals you set from that config land on contracts nobody uses.</p>
+      <p>pUSD is <b>only minted by Polymarket</b>: the implementation behind its EIP-1967 proxy exposes <code>mint(address,uint256)</code> and nothing else &mdash; no <code>deposit</code>, no <code>wrap</code>, no <code>redeem</code>. There is no contract call that gets you in. The deposit flow in their interface is the only path, not a shortcut around one.</p>
+      <p class="verdict">If your balance reads zero and your wallet says otherwise, stop debugging the client. You are holding the wrong token.</p>
+    </div>
+
+    <div class="trap">
+      <p class="cost">Trap 02 &middot; silent, and it empties positions</p>
+      <h3>Positions are keyed by <code>token_id</code>, not <code>asset</code></h3>
+      <p>Older examples read <code>asset</code> or <code>asset_id</code> off a position row. The current SDK returns <code>token_id</code>. Read the wrong name and every position looks unreadable.</p>
+      <p>This one is worse than a crash, because a careful bot does the <i>right</i> thing with bad data: ours refused to sell what it could not identify, held through a live match, and turned a market-making position into a directional bet. Guard the failure, but read the field correctly.</p>
+      <pre><code>token = getattr(row, "token_id", None) or getattr(row, "asset", None)</code></pre>
+    </div>
+
+    <div class="trap">
+      <p class="cost">Trap 03 &middot; looks like it works</p>
+      <h3>A <code>Paginator</code> yields pages, not rows</h3>
+      <p>Iterating the result of <code>list_positions()</code> or <code>list_open_orders()</code> hands you <code>Page</code> objects. Each one is truthy, countable, and completely wrong if you treat it as a record. Flatten first, and read <code>.items</code> &mdash; a <code>Page</code> is not iterable.</p>
+      <pre><code>rows = [row for page in paginator for row in page.items]</code></pre>
+    </div>
+
+    <div class="trap">
+      <p class="cost">Trap 04 &middot; keyword-only, positionally rejected</p>
+      <h3>Signatures that refuse to be guessed</h3>
+      <p>Several calls take keyword-only arguments and raise on the obvious positional form. The balance also comes back in <b>micro-units</b> &mdash; divide by 1e6, or your risk limits are off by a factor of a million.</p>
+      <pre><code>client.get_balance_allowance(asset_type="COLLATERAL")   # keyword required
+client.get_order_book(token_id=tid)                     # positional rejected
+client.place_market_order(..., shares=n)                # SELL wants shares=, not amount=
+balance = raw / 1_000_000                               # micro-units</code></pre>
+    </div>
+
+    <div class="trap">
+      <p class="cost">Trap 05 &middot; costs you the spread, quietly</p>
+      <h3>Always pass <code>post_only=True</code> when you mean to make</h3>
+      <p>Without it, a limit order that crosses the spread is accepted as a <b>taker</b>. You then pay the fee you were trying to earn, on the trade you were trying to avoid. <code>post_only</code> rejects the order instead of crossing &mdash; a structural protection, not a preference.</p>
+    </div>
+  </section>
+
+  <section>
+    <h2>What the order book taught us, separately</h2>
+    <p class="sub">Two measurements, in case they save someone a week. Both are ours, both are on mainnet, and both contradicted what the screen suggested.</p>
+    <p><b>A wide spread usually marks a slow book, not an opportunity.</b> Our first resting order sat <b>fourteen hours</b> without a fill. The book was not empty &mdash; it had depth on both sides and an eight-tick spread. Nobody was tightening it because nothing was happening in that market. Screening on 24h volume changed our candidate set far more than any spread filter did.</p>
+    <p><b>Full-book arbitrage is structurally dead.</b> Across 1,937 markets with both books readable, there were <b>zero</b> where buying YES and NO together cost under $1. 37% sat locked between 1.000 and 1.0015. Market makers hold asks one tick above parity and bids one tick below; the quotes never cross. That is not scarcity, it is the design.</p>
+  </section>
+
+  <div class="disclose">
+    <p><b>Disclosure, because it belongs next to the advice.</b> We run a builder on Polymarket. If you route orders through our remote signer, Polymarket attributes them to our builder code and <b>you pay 10&nbsp;bps on taker fills</b> (maker is currently 0). That fee comes out of your trade, not ours &mdash; so only route through us if the tooling is worth a tenth of a percent to you.</p>
+    <p>Everything on this page works without us, with no builder code, for free. It is written down because we needed it and could not find it, and that is the whole reason it exists.</p>
+  </div>
+
+  <footer>
+    <p>Measured on mainnet between 20 and 22 August 2026 by Abdoul Lahad Amar, working solo.
+    Fee comparisons for every builder on Polymarket: <a href="./">Builders Radar</a>.
+    Source: <a href="https://github.com/midas93230-cell/donmarket">github.com/midas93230-cell/donmarket</a>.</p>
+    <p>No affiliation with Polymarket. Figures are our own measurements and can go stale &mdash; re-measure before you rely on them.</p>
+  </footer>
+
+</div>
