@@ -380,3 +380,125 @@ def test_un_reliquat_sous_le_minimum_est_signale() -> None:
     ordres, soucis = exits(inv, {"t1": _carnet(0.30, 0.34)})
     assert ordres == []
     assert soucis and "invendable" in soucis[0][1]
+
+
+# --- Sorties : le plancher au prix de revient -------------------------------
+
+
+def test_la_sortie_ne_vend_jamais_sous_le_prix_de_revient() -> None:
+    """LA CORRECTION DU 2026-08-22, mesuree sur le PREMIER aller-retour reel.
+
+    « Will Team Spirit Win The International 2026? » : achete 16 parts a 0,10,
+    revendu a 0,090 le 21/08 a 22:39 UTC. Perte -0,16, soit -10 %, frais nuls
+    -- la perte est ENTIEREMENT le fait du prix de sortie.
+
+    `exits()` cotait au meilleur ask sans jamais regarder le prix de revient.
+    Quand le carnet glisse sous le prix d'achat, elle realise donc la perte
+    mecaniquement. L'asymetrie etait structurelle : gain plafonne a l'ecart,
+    perte non bornee par la derive du carnet.
+
+    Un teneur revend AU-DESSUS de son achat. C'est la definition du metier.
+    """
+    from donmarket.making.core import exits
+
+    inv = Inventory()
+    inv.add("t-spirit", 16.0, avg_price=0.10)
+    inv.set_deadline("t-spirit", MAINTENANT + timedelta(days=30))
+    ordres, soucis = exits(inv, {"t-spirit": _carnet(0.08, 0.09)}, now=MAINTENANT)
+
+    assert soucis == []
+    assert len(ordres) == 1
+    # 0,11 et non 0,09 : revient + un pas.
+    assert ordres[0].price == pytest.approx(0.11)
+    # Et c'est DIT : la vente est au-dessus du carnet, donc pas servie tout de
+    # suite. Tenir un prix en silence serait une autre facon d'abandonner.
+    assert ordres[0].held_above_book is True
+
+
+def test_la_sortie_suit_le_carnet_quand_il_est_au_dessus_du_plancher() -> None:
+    """Le plancher est un PLANCHER, pas un prix impose. Quand le carnet offre
+    mieux, on prend le carnet -- sinon on laisserait de l'argent sur la table."""
+    from donmarket.making.core import exits
+
+    inv = Inventory()
+    inv.add("t1", 20.0, avg_price=0.10)
+    ordres, _ = exits(inv, {"t1": _carnet(0.30, 0.34)}, now=MAINTENANT)
+
+    assert ordres[0].price == pytest.approx(0.34)
+    assert ordres[0].held_above_book is False
+
+
+def test_une_echeance_proche_fait_liquider_au_carnet() -> None:
+    """LE CONTREPOIDS INDISPENSABLE AU PLANCHER.
+
+    Un plancher sans echappatoire recree l'orpheline du 2026-08-21 : une
+    position dont le marche ne remonte jamais ne recevrait plus d'ordre
+    vendable, et se resoudrait a 0. Le plancher cede donc quand la resolution
+    approche -- mieux vaut une perte de deux pas qu'une position a zero.
+    """
+    from donmarket.making.core import exits
+
+    inv = Inventory()
+    inv.add("t1", 20.0, avg_price=0.10)
+    proche = MAINTENANT + timedelta(hours=2)
+    inv.set_deadline("t1", proche)
+
+    ordres, _ = exits(inv, {"t1": _carnet(0.08, 0.09)}, now=MAINTENANT)
+
+    assert ordres[0].price == pytest.approx(0.09)
+
+
+def test_une_echeance_lointaine_garde_le_plancher() -> None:
+    from donmarket.making.core import exits
+
+    inv = Inventory()
+    inv.add("t1", 20.0, avg_price=0.10)
+    inv.set_deadline("t1", MAINTENANT + timedelta(days=40))
+
+    ordres, _ = exits(inv, {"t1": _carnet(0.08, 0.09)}, now=MAINTENANT)
+
+    assert ordres[0].price == pytest.approx(0.11)
+
+
+def test_une_echeance_illisible_fait_liquider() -> None:
+    """A l'ACHAT, une echeance illisible fait s'abstenir ; a la VENTE, elle
+    fait SORTIR. Ce n'est pas une incoherence : dans les deux cas l'inconnu
+    pousse a reduire l'exposition. Supposer « c'est loin » ferait tenir un
+    plancher sur une position qui se resout peut-etre dans l'heure -- et le
+    SDK rend bel et bien des dates bidon (`1970-01-01`, mesure le 22/08).
+    """
+    from donmarket.making.core import exits
+
+    inv = Inventory()
+    inv.add("t1", 20.0, avg_price=0.10)  # aucune echeance renseignee
+
+    ordres, _ = exits(inv, {"t1": _carnet(0.08, 0.09)}, now=MAINTENANT)
+
+    assert ordres[0].price == pytest.approx(0.09)
+
+
+def test_sans_prix_de_revient_la_sortie_reste_possible() -> None:
+    """Un revient illisible ne doit pas empecher de sortir : on retombe sur le
+    carnet. Bloquer la vente ici transformerait un defaut de lecture en
+    position abandonnee -- exactement la faute du 21/08."""
+    from donmarket.making.core import exits
+
+    inv = Inventory()
+    inv.add("t1", 20.0)  # pas de prix de revient
+    inv.set_deadline("t1", MAINTENANT + timedelta(days=40))
+
+    ordres, _ = exits(inv, {"t1": _carnet(0.08, 0.09)}, now=MAINTENANT)
+
+    assert ordres[0].price == pytest.approx(0.09)
+
+
+def test_le_prix_de_revient_se_moyenne_sur_plusieurs_remplissages() -> None:
+    """Une position se construit en plusieurs remplissages a des prix
+    differents. Le plancher doit porter sur la moyenne PONDEREE, sinon le
+    dernier remplissage ecraserait les precedents."""
+    inv = Inventory()
+    inv.add("t1", 10.0, avg_price=0.10)
+    inv.add("t1", 30.0, avg_price=0.20)
+
+    assert inv.held("t1") == pytest.approx(40.0)
+    assert inv.cost_of("t1") == pytest.approx(0.175)

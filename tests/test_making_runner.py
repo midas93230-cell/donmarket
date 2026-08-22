@@ -7,6 +7,7 @@ place de marché en face, et surtout sans qu'un test puisse poser un ordre réel
 from __future__ import annotations
 
 from dataclasses import dataclass
+from datetime import date
 
 import pytest
 
@@ -319,3 +320,45 @@ def test_une_position_au_format_reel_est_lue() -> None:
     inv, motif = read_inventory([_PositionReelle()])
     assert motif is None
     assert inv.held("t1") == pytest.approx(14.0)
+
+
+# --- Le revient et l'echeance viennent du SDK -------------------------------
+
+
+def test_le_prix_de_revient_et_l_echeance_sont_lus() -> None:
+    """Sans ces deux champs le plancher de `exits()` ne s'applique JAMAIS en
+    reel : il retomberait sur « revient inconnu » a chaque tour et coterait au
+    carnet, exactement le comportement qui a perdu -0,16 sur le premier
+    aller-retour. Les noms sont ceux MESURES sur le SDK le 2026-08-22.
+    """
+
+    @dataclass
+    class _Position:
+        token_id: str = "t1"
+        size: float = 25.0
+        avg_price: float = 0.11
+        end_date: date = date(2026, 10, 1)
+
+    inv, motif = read_inventory([_Position()])
+
+    assert motif is None
+    assert inv.cost_of("t1") == pytest.approx(0.11)
+    echeance = inv.deadlines["t1"]
+    assert (echeance.year, echeance.month, echeance.day) == (2026, 10, 1)
+    assert echeance.tzinfo is not None
+
+
+def test_une_position_sans_revient_reste_lisible() -> None:
+    """Le revient est un BONUS, pas une condition : une position sans prix
+    connu doit rester vendable au carnet plutot que suspendre la boucle."""
+
+    @dataclass
+    class _Position:
+        token_id: str = "t1"
+        size: float = 25.0
+
+    inv, motif = read_inventory([_Position()])
+
+    assert motif is None
+    assert inv.held("t1") == pytest.approx(25.0)
+    assert inv.cost_of("t1") is None

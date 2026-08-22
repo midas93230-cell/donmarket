@@ -42,6 +42,7 @@ from __future__ import annotations
 
 import logging
 import time
+from datetime import date, datetime, timezone
 from dataclasses import dataclass, field
 from typing import Sequence
 
@@ -95,6 +96,12 @@ class MakingReport:
     # Positions qu on ne sait pas solder : carnet illisible, ou reliquat sous
     # le minimum d ordre. Les taire reviendrait a les abandonner une 2e fois.
     stranded: tuple[str, ...] = ()
+    # Ventes cotees AU-DESSUS du carnet parce que celui-ci est passe sous le
+    # prix de revient. Ce n est pas un echec -- c est le refus delibere de
+    # realiser la perte -- mais ca doit se voir : ces positions ne partiront
+    # pas tant que le carnet ne remonte pas, et il faut savoir combien on en
+    # porte. (token_id, prix tenu, meilleur ask)
+    held_above: tuple[tuple[str, float, float], ...] = ()
 
 
 def reconcile(
@@ -195,6 +202,21 @@ def read_live_orders(rows: Sequence[object]) -> list[LiveOrder]:
     return vivants
 
 
+def _as_datetime(valeur: object) -> datetime | None:
+    """Normalise l'échéance du SDK en `datetime` UTC, ou rend None.
+
+    Le SDK rend un `datetime.date` nu (mesuré le 2026-08-22), parfois une date
+    bidon comme `1970-01-01`. On ne filtre pas ces dernières ici : une échéance
+    passée doit se lire comme passée, et `exits()` en tire la bonne conclusion
+    — liquider. Corriger la donnée à cet étage masquerait le fait.
+    """
+    if isinstance(valeur, datetime):
+        return valeur if valeur.tzinfo else valeur.replace(tzinfo=timezone.utc)
+    if isinstance(valeur, date):
+        return datetime(valeur.year, valeur.month, valeur.day, tzinfo=timezone.utc)
+    return None
+
+
 def read_inventory(rows: Sequence[object]) -> tuple[Inventory, str | None]:
     """Lit les parts détenues. Rend aussi le MOTIF si c'est illisible.
 
@@ -226,10 +248,23 @@ def read_inventory(rows: Sequence[object]) -> tuple[Inventory, str | None]:
         if jeton is None or parts is None:
             inconnues += 1
             continue
+        # Le REVIENT et l'ÉCHÉANCE alimentent le plancher de `exits()`. Ils
+        # sont facultatifs : sans eux la position reste vendable au carnet,
+        # simplement sans protection. Les faire échouer ferait d'un champ
+        # manquant une position abandonnée — la faute du 21/08.
+        revient = getattr(row, "avg_price", None)
         try:
-            inv.add(str(jeton), float(parts))
+            revient = float(revient) if revient is not None else None
+        except (TypeError, ValueError):
+            revient = None
+
+        try:
+            inv.add(str(jeton), float(parts), avg_price=revient)
         except (TypeError, ValueError):
             inconnues += 1
+            continue
+
+        inv.set_deadline(str(jeton), _as_datetime(getattr(row, "end_date", None)))
     if inconnues:
         return inv, f"{inconnues} position(s) sur {total} illisibles — vente suspendue"
     return inv, None
@@ -295,6 +330,15 @@ def run_making(
                 for jeton, souci in soucis:
                     logger.error("position %s : %s", jeton[:12], souci)
                 rapport.stranded = tuple(j for j, _ in soucis)
+                rapport.held_above = tuple(
+                    (
+                        o.token_id,
+                        o.price,
+                        float(getattr(carnets.get(o.token_id), "best_ask", 0.0) or 0.0),
+                    )
+                    for o in sorties
+                    if o.held_above_book
+                )
 
                 achats = plan(
                     rungs,

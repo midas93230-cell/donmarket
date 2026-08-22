@@ -114,15 +114,45 @@ class Rung:
 
 @dataclass
 class Inventory:
-    """Les parts détenues, par jeton."""
+    """Les parts détenues, par jeton — avec leur prix de revient et l'échéance.
+
+    Le prix de revient n'est pas décoratif : sans lui, `exits()` cote au
+    meilleur ask quel qu'il soit et réalise la perte dès que le carnet glisse
+    sous le prix d'achat. C'est ce qui a fait le premier aller-retour du
+    projet, et il était perdant (voir `exits`).
+
+    L'échéance sert au contrepoids : le plancher doit céder avant la
+    résolution, sinon une position qui ne remonte pas ne se vend jamais.
+    """
 
     shares: dict[str, float] = field(default_factory=dict)
+    # Prix de revient MOYEN PONDÉRÉ. Absent tant qu'aucun prix n'a été fourni :
+    # un revient inconnu doit laisser sortir, pas bloquer la vente.
+    costs: dict[str, float] = field(default_factory=dict)
+    deadlines: dict[str, datetime] = field(default_factory=dict)
 
-    def add(self, token_id: str, shares: float) -> None:
-        self.shares[token_id] = self.shares.get(token_id, 0.0) + shares
+    def add(self, token_id: str, shares: float, avg_price: float | None = None) -> None:
+        detenu = self.shares.get(token_id, 0.0)
+        if avg_price is not None:
+            # Moyenne PONDÉRÉE : une position se construit en plusieurs
+            # remplissages, et prendre le dernier prix effacerait les autres.
+            revient = self.costs.get(token_id)
+            total = detenu + shares
+            if revient is not None and total > 0:
+                self.costs[token_id] = (revient * detenu + avg_price * shares) / total
+            else:
+                self.costs[token_id] = avg_price
+        self.shares[token_id] = detenu + shares
+
+    def set_deadline(self, token_id: str, when: datetime | None) -> None:
+        if when is not None:
+            self.deadlines[token_id] = when
 
     def held(self, token_id: str) -> float:
         return self.shares.get(token_id, 0.0)
+
+    def cost_of(self, token_id: str) -> float | None:
+        return self.costs.get(token_id)
 
 
 def _depth(levels: Sequence[object]) -> float:
@@ -296,6 +326,12 @@ class DesiredOrder:
     side: str
     price: float
     size: float
+    # Vrai quand le prix vient du PLANCHER et non du carnet : la vente est
+    # au-dessus du meilleur ask, donc peu susceptible d'être servie tout de
+    # suite. Ce n'est pas un problème — c'est un refus délibéré de réaliser la
+    # perte — mais ça doit être VISIBLE, faute de quoi une position tenue trop
+    # haut redevient silencieuse comme l'orpheline du 21/08.
+    held_above_book: bool = False
 
     @property
     def cost_usd(self) -> float:
@@ -307,6 +343,9 @@ def exits(
     books: Mapping[str, object],
     *,
     min_order_size: float = 5.0,
+    tick: float = DEFAULT_TICK,
+    now: datetime | None = None,
+    liquidate_within_hours: float = MIN_HOURS_TO_RESOLUTION,
 ) -> tuple[list[DesiredOrder], list[tuple[str, str]]]:
     """Un ordre de VENTE pour CHAQUE position détenue, sans condition.
 
@@ -327,6 +366,34 @@ def exits(
     Sans carnet lisible, la position est SIGNALÉE plutôt que passée sous
     silence : c'est une position qu'on ne sait pas solder, et le taire
     reviendrait à l'abandonner une seconde fois.
+
+    ## LE PLANCHER AU PRIX DE REVIENT (2026-08-22)
+
+    La correction ci-dessus soldait la position, mais à N'IMPORTE QUEL PRIX.
+    Le PREMIER aller-retour complet du projet l'a montré : « Team Spirit /
+    The International », 16 parts achetées à 0,10, revendues à 0,090 le 21/08
+    à 22:39 UTC. **−0,16 $, −10 %, frais nuls** — la perte est entièrement le
+    fait du prix de sortie. Le carnet avait glissé, et `exits()` a suivi.
+
+    L'asymétrie était structurelle : le gain d'un aller-retour est plafonné à
+    l'écart (un ou deux pas), la perte ne l'était par rien. Un teneur revend
+    AU-DESSUS de son achat — c'est la définition du métier, pas une préférence.
+
+    On cote donc à `max(meilleur ask, revient + un pas)`.
+
+    ## ET SON CONTREPOIDS, SANS LEQUEL IL SERAIT PIRE QUE LE MAL
+
+    Un plancher sans échappatoire recrée l'orpheline du 21/08 : une position
+    dont le marché ne remonte jamais ne recevrait plus d'ordre atteignable et
+    se résoudrait à zéro. Le plancher CÈDE donc quand la résolution approche
+    (`liquidate_within_hours`) — mieux vaut perdre deux pas que tout.
+
+    Deux inconnues, deux réponses opposées et toutes deux prudentes :
+      · échéance ILLISIBLE → on LIQUIDE. À l'achat l'inconnu fait s'abstenir,
+        à la vente il fait sortir ; dans les deux cas il réduit l'exposition.
+        Le SDK rend de vraies dates bidon (`1970-01-01`, mesuré le 22/08).
+      · revient ILLISIBLE → on cote au carnet, sans plancher. Bloquer la vente
+        ferait d'un défaut de lecture une position abandonnée.
     """
     ordres: list[DesiredOrder] = []
     problemes: list[tuple[str, str]] = []
@@ -344,13 +411,31 @@ def exits(
         if ask is None:
             problemes.append((token_id, "carnet illisible — sortie impossible"))
             continue
+
+        prix = float(ask)
+        revient = inventory.cost_of(token_id)
+        restant = _hours_until(inventory.deadlines.get(token_id), now)
+        # `None` = échéance illisible ou absente : on liquide (voir docstring).
+        liquide = restant is None or restant <= liquidate_within_hours
+
+        tenu = False
+        if revient is not None and not liquide:
+            plancher = round(revient + tick, 4)
+            if plancher > prix:
+                prix = plancher
+                tenu = True
+        # Un prix de vente ne peut pas atteindre 1,00 : au-delà du dernier pas
+        # sous la certitude, l'ordre est refusé par le carnet.
+        prix = min(prix, 1.0 - tick)
+
         ordres.append(
             DesiredOrder(
                 condition_id="",
                 token_id=token_id,
                 side="SELL",
-                price=round(float(ask), 4),
+                price=round(prix, 4),
                 size=parts,
+                held_above_book=tenu,
             )
         )
     return ordres, problemes

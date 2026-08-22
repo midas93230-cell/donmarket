@@ -125,6 +125,18 @@ def main() -> int:
             print(f"  {jeton[:24]}...")
         print("  Carnet illisible ou reliquat sous le minimum d'ordre.")
 
+    if rapport.held_above:
+        # Dit AVANT le bilan : ces ventes ne partiront pas tant que le carnet
+        # n est pas remonte. C est voulu -- vendre sous son prix d achat est
+        # ce qui a rendu le premier aller-retour perdant -- mais une position
+        # tenue en silence redevient une position abandonnee.
+        print(f"\n{len(rapport.held_above)} VENTE(S) TENUE(S) AU-DESSUS DU CARNET :")
+        for jeton, prix, ask in rapport.held_above:
+            print(
+                f"  {jeton[:16]}...  cotee {prix:.3f}  (carnet {ask:.3f}) "
+                f"-- sous le revient, perte non realisee"
+            )
+
     if rapport.problem:
         # Dit AVANT tout chiffre : une boucle qui s'est abstenue n'a pas
         # mesure la strategie, elle a mesure son propre refus.
