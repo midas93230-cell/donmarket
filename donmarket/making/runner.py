@@ -102,6 +102,11 @@ class MakingReport:
     # pas tant que le carnet ne remonte pas, et il faut savoir combien on en
     # porte. (token_id, prix tenu, meilleur ask)
     held_above: tuple[tuple[str, float, float], ...] = ()
+    # Ordres que la boucle a decide de poser mais n a PAS pu : un ordre
+    # etranger occupe la meme (jeton, sens) et n est pas annulable. Une
+    # abstention silencieuse ressemblerait a un tour normal.
+    # (token_id, side, prix voulu, id de l occupant)
+    blocked: tuple[tuple[str, str, float, str], ...] = ()
 
 
 def reconcile(
@@ -111,12 +116,31 @@ def reconcile(
     nous: frozenset[str],
     hysteresis_ticks: int = HYSTERESIS_TICKS,
     tick: float = TICK,
-) -> tuple[list[DesiredOrder], list[LiveOrder], list[LiveOrder]]:
-    """Compare le voulu au vivant. Rend (à poser, à annuler, à garder).
+) -> tuple[
+    list[DesiredOrder], list[LiveOrder], list[LiveOrder],
+    list[tuple[DesiredOrder, LiveOrder]],
+]:
+    """Compare le voulu au vivant. Rend (à poser, à annuler, à garder, bloqués).
 
     `nous` DÉLIMITE ce que la boucle a le droit de toucher : les identifiants
     des ordres qu'elle a elle-même posés. Tout le reste est ÉTRANGER — compté,
     journalisé, et laissé intact.
+
+    ## Les BLOQUÉS, et pourquoi cette quatrième liste existe (2026-08-22)
+
+    Laisser un étranger intact ne suffisait pas. S'il occupait la même
+    (jeton, sens) que ce qu'on voulait poser, la boucle posait quand même le
+    sien — sans pouvoir retirer l'autre. Résultat : deux ordres de vente pour
+    un seul inventaire, donc une tentative de vendre le double de ce qu'on
+    détient.
+
+    Le cas s'est présenté le jour même : la boucle a été arrêtée, deux de ses
+    ventes lui ont survécu au carnet, et la relancer les lui rendait
+    étrangères — sa propre trace d'une session à l'autre.
+
+    On s'abstient donc, et on RESSORT le conflit au lieu de le taire : une
+    boucle qui ne peut pas coter ce qu'elle a décidé doit le dire, faute de
+    quoi elle a l'air de fonctionner en ne faisant rien.
 
     HYSTÉRÉSIS, ajoutée le 2026-08-20 après la première heure armée. Le premier
     tour réel a rendu 13 ordres posés pour 24 annulés en 47 tours : la boucle
@@ -134,6 +158,7 @@ def reconcile(
     par_cle = {o.key: o for o in vivants}
     a_poser: list[DesiredOrder] = []
     a_garder: list[LiveOrder] = []
+    bloques: list[tuple[DesiredOrder, LiveOrder]] = []
     utilises: set[tuple[str, str]] = set()
     seuil = hysteresis_ticks * tick - 1e-9
 
@@ -144,12 +169,20 @@ def reconcile(
             a_garder.append(vivant)
             utilises.add(cle)
             continue
+        if vivant is not None and vivant.order_id not in nous:
+            # ON NE POSE JAMAIS SUR UNE CLÉ QU'ON NE PEUT PAS LIBÉRER.
+            # L'occupant est étranger, donc intouchable ; poser le nôtre à côté
+            # ferait DEUX ordres pour un seul inventaire, et on tenterait de
+            # vendre le double de ce qu'on détient. On s'abstient et on le dit.
+            bloques.append((voulu, vivant))
+            utilises.add(cle)
+            continue
         a_poser.append(voulu)
 
     a_annuler = [
         o for o in vivants if o.key not in utilises and o.order_id in nous
     ]
-    return a_poser, a_annuler, a_garder
+    return a_poser, a_annuler, a_garder, bloques
 
 
 def flatten(paginator) -> list[object]:
@@ -279,6 +312,7 @@ def run_making(
     interval_s: float,
     max_markets: int,
     armed: bool,
+    adopted: set[str] | None = None,
     expiration: int | None = None,
     sleep=time.sleep,
     now=time.monotonic,
@@ -291,7 +325,14 @@ def run_making(
     """
     rapport = MakingReport(armed=armed)
     par_marche = bankroll / max(max_markets, 1)
-    a_nous: set[str] = set()
+    # `adopted` = les identifiants qu'une session PRECEDENTE a laisses au
+    # carnet. Sans eux, ses propres ordres reviennent ETRANGERS a la boucle :
+    # elle ne peut plus les recoter ni les annuler, et la cle reste bloquee
+    # jusqu'a intervention humaine. L'appelant est responsable de ne fournir
+    # que des identifiants qu'elle a reellement poses -- adopter un ordre pose
+    # a la main par le proprietaire du compte reviendrait a s'autoriser a le
+    # supprimer, exactement ce que le garde-fou « etranger » interdit.
+    a_nous: set[str] = set(adopted or ())
     debut = now()
     limite_s = minutes * 60
 
@@ -359,10 +400,22 @@ def run_making(
                     "laissés intacts", len(etrangers)
                 )
 
-            a_poser, a_annuler, a_garder = reconcile(
+            a_poser, a_annuler, a_garder, bloques = reconcile(
                 voulus, vivants, nous=frozenset(a_nous)
             )
             rapport.kept = len(a_garder)
+            rapport.blocked = tuple(
+                (v.token_id, v.side, v.price, o.order_id) for v, o in bloques
+            )
+            for voulu, occupant in bloques:
+                # En ERROR, pas en INFO : la boucle voulait coter et n'a pas
+                # pu. Le taire ferait passer une abstention pour un tour normal.
+                logger.error(
+                    "%s %s @ %.3f BLOQUÉ — un ordre étranger (%s) occupe la "
+                    "place et ne peut pas être annulé",
+                    voulu.side, voulu.token_id[:12], voulu.price,
+                    occupant.order_id[:16],
+                )
 
             if armed and a_annuler:
                 try:

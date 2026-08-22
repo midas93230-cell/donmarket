@@ -50,7 +50,7 @@ def test_un_ordre_deja_au_bon_prix_est_garde_pas_rejoue() -> None:
     """ANCRAGE. Réémettre un ordre identique lui fait perdre sa place dans la
     file — et la place dans la file est exactement ce qui décide d'être rempli.
     C'est le seul avantage d'un teneur arrivé tôt."""
-    poser, annuler, garder = reconcile(
+    poser, annuler, garder, _bloques = reconcile(
         [_voulu()], [_vivant()], nous=frozenset({"O-1"})
     )
     assert poser == [] and annuler == [] and len(garder) == 1
@@ -61,7 +61,7 @@ def test_un_ordre_vraiment_loin_du_prix_est_annule_et_repose() -> None:
     désormais être ignoré. C'est justement le comportement corrigé — recoter
     pour un pas renvoyait l'ordre en fin de file à chaque tour et l'empêchait
     d'être jamais servi. Voir les tests d'hystérésis plus bas."""
-    poser, annuler, _ = reconcile(
+    poser, annuler, _, _bloques = reconcile(
         [_voulu(price=0.24)], [_vivant(price=0.20)], nous=frozenset({"O-1"})
     )
     assert len(poser) == 1 and poser[0].price == 0.24
@@ -75,14 +75,14 @@ def test_un_ordre_etranger_nest_jamais_annule() -> None:
     décidé, et « je ne l'ai pas reconnu » n'est pas une raison de supprimer."""
     etranger = _vivant(order_id="ETRANGER", token="tX")
     a_nous = _vivant(order_id="O-1", token="t1")
-    _poser, annuler, _garder = reconcile(
+    _poser, annuler, _garder, _bloques = reconcile(
         [], [etranger, a_nous], nous=frozenset({"O-1"})
     )
     assert [o.order_id for o in annuler] == ["O-1"]
 
 
 def test_achat_et_vente_sont_des_cles_distinctes() -> None:
-    poser, annuler, _ = reconcile(
+    poser, annuler, _, _bloques = reconcile(
         [_voulu(side="SELL", price=0.24)],
         [_vivant(side="BUY", price=0.24)],
         nous=frozenset({"O-1"}),
@@ -259,7 +259,7 @@ def test_un_ecart_dun_pas_ne_declenche_pas_de_recotation() -> None:
     jamais servi. Mieux vaut un ordre un pas trop bas qui vieillit qu'un ordre
     parfaitement place qui repart de zero chaque minute.
     """
-    poser, annuler, garder = reconcile(
+    poser, annuler, garder, _bloques = reconcile(
         [_voulu(price=0.21)], [_vivant(price=0.20)], nous=frozenset({"O-1"})
     )
     assert poser == [], "recotation declenchee pour un seul pas"
@@ -271,7 +271,7 @@ def test_un_ecart_de_trois_pas_declenche_bien_la_recotation() -> None:
     """L'hysteresis ne doit pas devenir de l'immobilisme : quand le marche a
     vraiment bouge, un ordre reste loin du carnet ne sera jamais servi non
     plus, et il immobilise du capital pour rien."""
-    poser, annuler, _garder = reconcile(
+    poser, annuler, _garder, _bloques = reconcile(
         [_voulu(price=0.23)], [_vivant(price=0.20)], nous=frozenset({"O-1"})
     )
     assert len(poser) == 1 and poser[0].price == 0.23
@@ -279,7 +279,7 @@ def test_un_ecart_de_trois_pas_declenche_bien_la_recotation() -> None:
 
 
 def test_le_seuil_est_reglable() -> None:
-    poser, _annuler, garder = reconcile(
+    poser, _annuler, garder, _bloques = reconcile(
         [_voulu(price=0.25)], [_vivant(price=0.20)],
         nous=frozenset({"O-1"}), hysteresis_ticks=10,
     )
@@ -362,3 +362,82 @@ def test_une_position_sans_revient_reste_lisible() -> None:
     assert motif is None
     assert inv.held("t1") == pytest.approx(25.0)
     assert inv.cost_of("t1") is None
+
+
+# --- Ordres survivants d'une session precedente ----------------------------
+
+
+def test_une_cle_occupee_par_un_etranger_ne_recoit_pas_de_doublon() -> None:
+    """LE DEFAUT TROUVE LE 2026-08-22, avant qu'il ne coute quoi que ce soit.
+
+    `reconcile` ne peut annuler que les ordres de `nous`. Un ordre ETRANGER
+    place sur la meme (jeton, sens) que ce qu'on veut poser mettait donc la
+    boucle dans une impasse silencieuse : elle posait le sien SANS pouvoir
+    retirer l'autre. Deux ordres de vente pour un seul inventaire -- on tentait
+    de vendre le double de ce qu'on detient.
+
+    Le cas n'est pas theorique : apres l'arret de la boucle du 22/08, deux
+    ventes lui ont survecu au carnet, et la relancer les lui aurait rendues
+    etrangeres.
+
+    Regle : on ne pose JAMAIS sur une cle qu'on ne peut pas liberer.
+    """
+    etranger = _vivant(order_id="ETRANGER", price=0.20, side="SELL")
+    poser, annuler, garder, bloques = reconcile(
+        [_voulu(side="SELL", price=0.30)], [etranger], nous=frozenset()
+    )
+    assert poser == [], "un doublon a ete pose sur une cle non liberable"
+    assert annuler == [] and garder == []
+    assert len(bloques) == 1
+    voulu, occupant = bloques[0]
+    assert voulu.price == 0.30 and occupant.order_id == "ETRANGER"
+
+
+def test_un_etranger_deja_au_bon_prix_ne_bloque_rien() -> None:
+    """Un ordre etranger au prix qu'on voulait fait le travail. Le signaler
+    comme bloquant crierait au loup a chaque tour."""
+    etranger = _vivant(order_id="ETRANGER", price=0.30, side="SELL")
+    poser, _annuler, garder, bloques = reconcile(
+        [_voulu(side="SELL", price=0.30)], [etranger], nous=frozenset()
+    )
+    assert poser == [] and bloques == []
+    assert len(garder) == 1
+
+
+def test_les_ordres_adoptes_redeviennent_annulables() -> None:
+    """La reprise apres relance : les identifiants retrouves sur disque
+    rentrent dans `nous`, donc la boucle peut de nouveau recoter ses propres
+    ordres au lieu de les subir."""
+    survivant = _vivant(order_id="O-HIER", price=0.20, side="SELL")
+    poser, annuler, _garder, bloques = reconcile(
+        [_voulu(side="SELL", price=0.30)],
+        [survivant],
+        nous=frozenset({"O-HIER"}),
+    )
+    assert bloques == []
+    assert len(poser) == 1 and poser[0].price == 0.30
+    assert [o.order_id for o in annuler] == ["O-HIER"]
+
+
+def test_la_boucle_adopte_les_ordres_dune_session_precedente() -> None:
+    """REPRISE APRES RELANCE. Sans cela, ses propres ordres survivants lui
+    reviennent ETRANGERS : elle ne peut plus les recoter, et la cle est
+    bloquee. Les identifiants retrouves entrent dans `nous` des le depart.
+    """
+    survivant = _vivant(order_id="O-HIER", price=0.20, side="SELL", token="t1")
+    client = _ClientDouble(ouverts=[survivant], positions=[])
+    rapport = run_making(
+        client,
+        lambda: ([], [], {}),
+        bankroll=0.0,
+        minutes=0.01,
+        interval_s=0.0,
+        max_markets=1,
+        armed=True,
+        adopted={"O-HIER"},
+        sleep=lambda _s: None,
+    )
+    # Adopte, donc nettoye a la fin comme n'importe lequel de ses ordres --
+    # et surtout PAS compte comme etranger.
+    assert rapport.foreign_seen == 0
+    assert any("O-HIER" in lot for lot in client.annules)
