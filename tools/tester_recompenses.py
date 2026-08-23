@@ -107,6 +107,7 @@ def meilleur(niveaux):
 def selectionner(client, bankroll: float, taille: int = TAILLE_ECHANTILLON,
                  prix_min: float = MIN_PRIX):
     """Rend les candidats finançables ET marquables, les mieux dotes d'abord."""
+    from donmarket.analysis.scoring import distance_after_posting, order_score
     from donmarket.making.runner import flatten
 
     pool = [
@@ -139,8 +140,13 @@ def selectionner(client, bankroll: float, taille: int = TAILLE_ECHANTILLON,
                 motifs["illisible"] += 1
                 continue
             # PRIX EXTREMES ECARTES. Deux raisons, et la seconde est la vraie.
-            # 1) Le bareme penalise `Qmin` par /3 hors de [0,10 ; 0,90]
-            #    (formule relevee le 31/07).
+            # 1) ATTENTION AU SENS DU BAREME -- je l'avais ecrit A L'ENVERS ici
+            #    le 22/08, et ça a coute un ticket condamne d'avance. Le `/3`
+            #    n'est pas une penalite hors bande : c'est la CLEMENCE accordee
+            #    DANS [0,10 ; 0,90], celle qui autorise a marquer en ne cotant
+            #    qu'un seul cote. DEHORS, `Qmin = min(Qone, Qtwo)` s'applique
+            #    strictement, donc un cote unique vaut exactement ZERO.
+            #    Le filtre qui compte est celui sur le MILIEU, plus bas.
             # 2) Une bande de 4,5 cents autour d'un prix de 1 cent ne veut rien
             #    dire : le milieu ne peut pas descendre sous zero. Le scan du
             #    22/08 remontait « NVIDIA Q2 gross margin 78%+ » a 0,010, pool
@@ -172,6 +178,38 @@ def selectionner(client, bankroll: float, taille: int = TAILLE_ECHANTILLON,
                 motifs["bid hors bande"] = motifs.get("bid hors bande", 0) + 1
                 continue
 
+            # LE MILIEU, ET NON LE PRIX DU JETON, DECIDE DE LA CLEMENCE.
+            # Formule relevee dans `analysis/scoring` :
+            #   Qmin = max(min(Qone,Qtwo), max(Qone,Qtwo)/3)  si milieu in [0,10;0,90]
+            #   Qmin = min(Qone, Qtwo)                        sinon
+            # Le /3 n'est PAS une penalite hors bande -- c'est la CLEMENCE qui
+            # permet de marquer en ne cotant qu'UN SEUL cote. Dehors, c'est le
+            # `min` strict : un seul cote donne exactement ZERO.
+            #
+            # Mesure du 23/08 : le ticket « McCaffrey » pose a 0,050 avait un
+            # milieu de 0,085. Hors bande, donc Qmin = min(q, 0) = 0. Il etait
+            # condamne des la pose, et il a effectivement rendu 0 sur la
+            # journee. J'avais ecrit ce commentaire A L'ENVERS la veille.
+            milieu = (bid + ask) / 2.0
+            if not (MIN_PRIX <= milieu <= MAX_PRIX):
+                motifs["milieu hors bande (score nul)"] = (
+                    motifs.get("milieu hors bande (score nul)", 0) + 1
+                )
+                continue
+
+            # LE SCORE REEL, calcule par le module qui sait le faire. Les
+            # filtres ci-dessus sont des approximations ; `order_score` tient
+            # compte du deplacement du milieu par notre propre ordre -- le
+            # piege du 31/07, qui avait produit un « +238 %/jour » imaginaire.
+            distance = distance_after_posting(bid, ask, bid)
+            if distance is None:
+                motifs["carnet incomplet"] += 1
+                continue
+            score = order_score(parts, distance, bande)
+            if score <= 0.0:
+                motifs["score nul"] = motifs.get("score nul", 0) + 1
+                continue
+
             candidats.append({
                 "condition_id": brut.condition_id,
                 "token_id": jeton.token_id,
@@ -183,6 +221,8 @@ def selectionner(client, bankroll: float, taille: int = TAILLE_ECHANTILLON,
                 "bande": bande,
                 "parts": parts,
                 "cout": parts * bid,
+                "milieu": milieu,
+                "score": score,
                 "taux_jour": float(brut.total_daily_rate),
                 "concurrence": float(m.market_competitiveness or 0.0),
             })
