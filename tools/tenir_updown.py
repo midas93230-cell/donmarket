@@ -319,6 +319,51 @@ def main() -> int:
                       f"{c['bid']:.3f} vente {c['ask']:.3f} | {c['parts']:.0f} parts "
                       f"= {c['cout']:.2f} $ | {c['heures']:.1f} h | {c['slug'][:30]}")
 
+            # ADOPTION DE SON PROPRE ORDRE AU REDEMARRAGE.
+            # Troisieme fois que ce piege se referme le meme jour, et la
+            # deuxieme sur cet outil : une boucle qui repart avec une memoire
+            # vide ne reconnait pas ce qu'elle a laisse au carnet. Ici elle a
+            # tente de reposer un achat de 2,30 $ alors que le premier y etait
+            # encore -- 4,60 $ demandes pour 4,27 $ disponibles, refuse par
+            # Polymarket (`not enough balance`). Sans ce refus, on aurait
+            # double la position sans le vouloir.
+            if ouvert is None and args.arm:
+                par_jeton = {}
+                for marche in marches:
+                    try:
+                        for jeton in json.loads(marche.get("clobTokenIds") or "[]"):
+                            par_jeton[str(jeton)] = marche
+                    except ValueError:
+                        continue
+                try:
+                    for vivant in flatten(client.list_open_orders()):
+                        if str(vivant.side).upper() != "BUY":
+                            continue
+                        marche = par_jeton.get(str(vivant.token_id))
+                        if marche is None:
+                            continue
+                        fin = fin_de(marche)
+                        if fin is None:
+                            continue
+                        # On reprend le prix de vente vise depuis le carnet
+                        # courant : l'ask d'il y a deux heures n'existe plus.
+                        carnet = client.get_order_book(token_id=str(vivant.token_id))
+                        cible = meilleur(carnet.asks)
+                        ouvert = {
+                            "token_id": str(vivant.token_id),
+                            "slug": marche.get("slug"),
+                            "fin": fin,
+                            "bid": float(vivant.price),
+                            "ask": float(cible.price) if cible else float(vivant.price),
+                            "parts": float(vivant.original_size),
+                        }
+                        print(f"\nREPRISE : achat deja au carnet, "
+                              f"{ouvert['parts']:.0f} @ {ouvert['bid']:.3f} sur "
+                              f"{str(ouvert['slug'])[:34]} -- adopte, aucun doublon.")
+                        break
+                except Exception as exc:  # noqa: BLE001
+                    logger.warning("carnet illisible a l'adoption : %s", exc)
+
             # LA VENTE, DES QUE L'ACHAT EST REMPLI. Sans elle l'outil achete
             # puis liquide au marche : il paie l'ecart DEUX FOIS et la capture
             # de 17 % devient une perte garantie. C'etait le defaut du premier
