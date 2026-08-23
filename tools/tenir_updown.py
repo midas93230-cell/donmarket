@@ -1,0 +1,299 @@
+# -*- coding: utf-8 -*-
+"""Capture d'ecart sur les marches crypto « Up or Down », avec sortie forcee.
+
+    .venv/Scripts/python tools/tenir_updown.py --bankroll 2
+    .venv/Scripts/python tools/tenir_updown.py --bankroll 2 --arm
+
+Sans `--arm`, rien ne part : l'outil decouvre, chiffre et affiche son plan.
+
+## Pourquoi un outil separe de `tenir_marche`
+
+`tenir_marche` ecarte tout marche a moins de six heures de sa resolution
+(`making/core.MIN_HOURS_TO_RESOLUTION`). Les Up/Down se resolvent dans la
+journee : ils etaient donc EXCLUS PAR CONSTRUCTION, et n'ont jamais ete
+regardes. C'est l'utilisateur qui a demande qu'on aille voir.
+
+## Ce que la mesure du 2026-08-23 a montre
+
+Sur « Ethereum Up or Down on August 23 », a deux heures de la cloture :
+bid 0,108 / ask 0,130 -- **2,2 cents d'ecart sur un prix de 0,108, soit ~20 %
+brut par aller-retour**, avec 27 et 28 parts de profondeur DES DEUX COTES.
+`orderMinSize` y vaut **5 parts**, contre 20 sur les marches a recompenses :
+le ticket tombe a ~0,54 $.
+
+Ce n'est pas le piege du carnet beant du 28/07 : la profondeur est reelle des
+deux cotes et le prix est dans [0,10 ; 0,90]. Volume 24 h : 81 000 $ pour
+Ethereum, 284 000 $ pour Bitcoin. Le probleme numero un de notre tenue de
+marche -- quatorze heures au carnet sans un seul remplissage -- n'existe pas
+ici.
+
+## LE GARDE-FOU CENTRAL : la sortie forcee
+
+Un marche qui se resout transforme toute position non soldee en pari : elle ne
+vaut plus un prix, elle vaut 0 ou 1. A 0,108, c'est environ neuf chances sur
+dix de tout perdre. C'est exactement le mecanisme qui a fait tomber QUATRE
+positions a zero le 21/08 et coute 10 $ sur 16.
+
+Cet outil refuse donc d'entrer trop pres de la cloture (`--marge-entree`), et
+il LIQUIDE ce qu'il detient a l'approche de l'echeance (`--marge-sortie`), en
+traversant l'ecart s'il le faut. Perdre l'ecart est un cout ; garder la
+position est un pari. Les deux ne se comparent pas.
+"""
+
+from __future__ import annotations
+
+import argparse
+import json
+import logging
+import os
+import sys
+import time
+from datetime import datetime, timedelta, timezone
+
+sys.path.insert(0, ".")
+
+logging.basicConfig(level=logging.INFO, format="%(asctime)s  %(levelname)-7s %(message)s")
+logging.getLogger("httpx").setLevel(logging.WARNING)
+logger = logging.getLogger("updown")
+
+GAMMA = "https://gamma-api.polymarket.com/markets"
+
+# Ecart minimal, en fraction du prix, pour qu'un aller-retour vaille la peine.
+# Sous ce seuil le moindre decalage du carnet transforme le gain en perte --
+# meme raison que `MIN_SPREAD_TICKS` dans `making/core`.
+ECART_MIN_RELATIF = 0.08
+
+# Parts presentes de chaque cote pour qu'on parle de contrepartie.
+# Volontairement bas : `orderMinSize` vaut 5 sur ces marches. On ne cherche pas
+# un carnet epais, seulement a eliminer ceux ou personne ne repondra.
+PROFONDEUR_MIN = 15.0
+
+
+def marches_updown(session) -> list[dict]:
+    """Les Up/Down encore ouverts, les plus echanges d'abord."""
+    reponse = session.get(
+        GAMMA,
+        params={"closed": "false", "limit": "500",
+                "order": "volume24hr", "ascending": "false"},
+        timeout=30,
+    )
+    reponse.raise_for_status()
+    return [m for m in reponse.json() if "up-or-down" in (m.get("slug") or "")]
+
+
+def fin_de(marche: dict) -> datetime | None:
+    brut = marche.get("endDate")
+    if not brut:
+        return None
+    try:
+        return datetime.fromisoformat(str(brut).replace("Z", "+00:00"))
+    except ValueError:
+        return None
+
+
+def meilleur(niveaux):
+    """Carnets Polymarket : PIRE PRIX EN PREMIER, le meilleur est en dernier."""
+    return niveaux[-1] if niveaux else None
+
+
+def examiner(client, marche: dict, maintenant: datetime, marge_entree: float):
+    """Rend (candidat, motif). Un seul des deux est non nul."""
+    fin = fin_de(marche)
+    if fin is None:
+        return None, "echeance illisible"
+    restantes = (fin - maintenant).total_seconds() / 3600.0
+    if restantes < marge_entree:
+        return None, f"cloture dans {restantes:.1f} h"
+
+    try:
+        jetons = json.loads(marche.get("clobTokenIds") or "[]")
+    except ValueError:
+        return None, "jetons illisibles"
+    if not jetons:
+        return None, "jetons absents"
+
+    taille_min = float(marche.get("orderMinSize") or 5)
+    cotes = []
+    for jeton in jetons:
+        carnet = client.get_order_book(token_id=jeton)
+        bid, ask = meilleur(carnet.bids), meilleur(carnet.asks)
+        if bid is None or ask is None:
+            continue
+        pb, pa = float(bid.price), float(ask.price)
+        if pb <= 0 or pa >= 1:
+            continue
+        if float(bid.size) < PROFONDEUR_MIN or float(ask.size) < PROFONDEUR_MIN:
+            continue
+        cotes.append({
+            "token_id": jeton,
+            "bid": pb, "ask": pa,
+            "ecart": pa - pb,
+            "ecart_relatif": (pa - pb) / pb,
+            "profondeur_bid": float(bid.size),
+            "profondeur_ask": float(ask.size),
+        })
+    if not cotes:
+        return None, "aucun cote avec contrepartie"
+
+    # Le meilleur ecart RELATIF : c'est lui qui dit ce que rapporte un dollar
+    # engage, pas l'ecart absolu.
+    choix = max(cotes, key=lambda x: x["ecart_relatif"])
+    if choix["ecart_relatif"] < ECART_MIN_RELATIF:
+        return None, f"ecart {choix['ecart_relatif'] * 100:.1f} % trop mince"
+
+    choix.update({
+        "slug": marche.get("slug"),
+        "question": marche.get("question"),
+        "fin": fin,
+        "heures": restantes,
+        "parts": taille_min,
+        "cout": taille_min * choix["bid"],
+        "volume24h": float(marche.get("volume24hr") or 0),
+    })
+    return choix, None
+
+
+def main() -> int:
+    import httpx
+    from dotenv import load_dotenv
+    from polymarket import SecureClient
+
+    from donmarket.store import vault
+
+    parser = argparse.ArgumentParser()
+    parser.add_argument("--bankroll", type=float, required=True)
+    parser.add_argument(
+        "--marge-entree", type=float, default=4.0,
+        help=(
+            "heures minimales avant cloture pour OUVRIR. Sous cette marge un "
+            "aller-retour n'a pas le temps de se boucler et l'achat devient un "
+            "pari sur la resolution (defaut 4 h)."
+        ),
+    )
+    parser.add_argument(
+        "--marge-sortie", type=float, default=1.0,
+        help=(
+            "heures avant cloture ou l'on LIQUIDE, en traversant l'ecart s'il "
+            "le faut. Perdre l'ecart est un cout, garder la position est un "
+            "pari a 0 ou 1 (defaut 1 h)."
+        ),
+    )
+    parser.add_argument("--minutes", type=float, default=60.0)
+    parser.add_argument("--interval", type=float, default=45.0)
+    parser.add_argument("--arm", action="store_true")
+    args = parser.parse_args()
+
+    load_dotenv(".env", override=True)
+    client = SecureClient.create(
+        private_key=vault.read_secret("POLYMARKET_PRIVATE_KEY"),
+        wallet=os.environ["POLYMARKET_FUNDER"],
+    )
+
+    print("=" * 74)
+    print("UP / DOWN CRYPTO -- CAPTURE D'ECART AVEC SORTIE FORCEE")
+    print("=" * 74)
+    if not args.arm:
+        print("\nDESARME -- l'outil affiche son plan et n'envoie rien.")
+
+    session = httpx.Client()
+    debut = time.monotonic()
+    ouvert: dict | None = None
+
+    try:
+        while time.monotonic() - debut < args.minutes * 60:
+            maintenant = datetime.now(timezone.utc)
+            try:
+                marches = marches_updown(session)
+            except Exception as exc:  # noqa: BLE001
+                logger.warning("univers illisible : %s", exc)
+                time.sleep(args.interval)
+                continue
+
+            # LA SORTIE D'ABORD, TOUJOURS. Meme regle que `making/core.exits` :
+            # l'eligibilite gouverne l'achat, jamais la sortie.
+            if ouvert is not None:
+                reste = (ouvert["fin"] - maintenant).total_seconds() / 3600.0
+                if reste <= args.marge_sortie:
+                    logger.error(
+                        "LIQUIDATION : %s ferme dans %.2f h -- on sort au marche",
+                        ouvert["slug"], reste,
+                    )
+                    if args.arm:
+                        try:
+                            client.cancel_all()
+                            client.place_market_order(
+                                token_id=ouvert["token_id"],
+                                shares=ouvert["parts"], side="SELL",
+                            )
+                            print("Position liquidee avant resolution.")
+                        except Exception as exc:  # noqa: BLE001
+                            logger.error("LIQUIDATION ECHOUEE : %s", exc)
+                            print("!! POSITION NON SOLDEE -- verifier a la main.")
+                    return 0
+
+            candidats, motifs = [], []
+            for marche in marches:
+                try:
+                    trouve, motif = examiner(
+                        client, marche, maintenant, args.marge_entree
+                    )
+                except Exception as exc:  # noqa: BLE001
+                    trouve, motif = None, f"lecture: {exc}"
+                if trouve:
+                    candidats.append(trouve)
+                elif motif:
+                    motifs.append((str(marche.get("slug", "?"))[:36], motif))
+
+            candidats = [c for c in candidats if c["cout"] <= args.bankroll]
+            candidats.sort(key=lambda c: -c["ecart_relatif"])
+
+            print(f"\n--- {maintenant:%H:%M:%S} UTC | {len(marches)} up/down | "
+                  f"{len(candidats)} exploitable(s)")
+            for slug, motif in motifs[:4]:
+                print(f"    ecarte : {slug} -- {motif}")
+            for c in candidats[:4]:
+                print(f"    {c['ecart_relatif'] * 100:>5.1f} % brut | achat "
+                      f"{c['bid']:.3f} vente {c['ask']:.3f} | {c['parts']:.0f} parts "
+                      f"= {c['cout']:.2f} $ | {c['heures']:.1f} h | {c['slug'][:30]}")
+
+            if ouvert is None and candidats and args.arm:
+                choix = candidats[0]
+                recu = client.place_limit_order(
+                    token_id=choix["token_id"], price=choix["bid"],
+                    size=choix["parts"], side="BUY", post_only=True,
+                )
+                if bool(getattr(recu, "success", getattr(recu, "ok", False))):
+                    ouvert = choix
+                    sortie = choix["fin"] - timedelta(hours=args.marge_sortie)
+                    print(f"\nACHAT POSE : {choix['parts']:.0f} @ {choix['bid']:.3f} "
+                          f"= {choix['cout']:.2f} $ -- sortie forcee a "
+                          f"{sortie:%H:%M} UTC")
+                    chemin = os.path.join(
+                        os.environ.get("TEMP", "."), "updown-session.json"
+                    )
+                    with open(chemin, "w", encoding="utf-8") as f:
+                        json.dump({
+                            "ouvert_le": maintenant.isoformat(),
+                            "clot_prevue": choix["fin"].isoformat(),
+                            "slug": choix["slug"],
+                            "token_id": choix["token_id"],
+                            "prix_achat": choix["bid"],
+                            "parts": choix["parts"],
+                            "ordre_id": str(getattr(recu, "order_id", "")),
+                        }, f, indent=2, ensure_ascii=False)
+                else:
+                    print(f"achat refuse : {recu}")
+
+            time.sleep(args.interval)
+    finally:
+        session.close()
+
+    if ouvert is not None:
+        print("\nATTENTION : une position reste ouverte et la boucle s'arrete.")
+        print(f"  {ouvert['slug']} ferme a {ouvert['fin']:%H:%M} UTC.")
+        print("  Relancer l'outil, ou solder a la main AVANT la resolution.")
+    return 0
+
+
+if __name__ == "__main__":
+    raise SystemExit(main())
