@@ -68,17 +68,65 @@ ECART_MIN_RELATIF = 0.08
 # un carnet epais, seulement a eliminer ceux ou personne ne repondra.
 PROFONDEUR_MIN = 15.0
 
+# Jours a sonder en avant. Les cycles ne sont pas quotidiens : le 23/08, le
+# suivant portait sur le 25, pas le 24. Sonder une semaine couvre les trous.
+JOURS_A_SONDER = 8
+
 
 def marches_updown(session) -> list[dict]:
-    """Les Up/Down encore ouverts, les plus echanges d'abord."""
-    reponse = session.get(
-        GAMMA,
-        params={"closed": "false", "limit": "500",
-                "order": "volume24hr", "ascending": "false"},
-        timeout=30,
-    )
-    reponse.raise_for_status()
-    return [m for m in reponse.json() if "up-or-down" in (m.get("slug") or "")]
+    """Les Up/Down encore ouverts, decouverts par PLUSIEURS tris.
+
+    LE BUG DU 23/08, et il etait ironique. Cette fonction n'interrogeait que le
+    top 500 par `volume24hr`. Or un marche qui VIENT D'OUVRIR a un volume de
+    zero : il n'y figure pas. On cherchait donc les marches neufs -- ceux qui
+    ont le plus d'ecart, precisement parce que personne ne les a encore
+    resserres -- en triant par activite PASSEE.
+
+    Mesure : a 16h07, les trois Up/Down du 25 aout existaient avec 48 h devant
+    eux et 17,4 % d'ecart, et l'outil affichait « 0 exploitable ». Il ne voyait
+    que les deux marches du 23, clos depuis six minutes.
+
+    Cumuler deux TRIS ne suffisait pas non plus -- deuxieme tentative, meme
+    jour. Gamma plafonne chaque reponse a 500 marches et il y en a des
+    milliers : les Up/Down du 25 ne remontaient ni par volume (nul, marche
+    neuf) ni par `startDate` (trop de marches plus recents devant). L'outil
+    affichait alors « 0 up/down », soit PIRE que le bug initial.
+
+    On ne cherche donc plus : on DEMANDE. Le nommage est parfaitement regulier
+    (`bitcoin-up-or-down-on-august-25-2026`), donc on genere les slugs des
+    prochains jours et on les interroge nommement. Deterministe, et insensible
+    au nombre de marches ouverts sur la place.
+    """
+    mois = ["january", "february", "march", "april", "may", "june", "july",
+            "august", "september", "october", "november", "december"]
+    aujourd_hui = datetime.now(timezone.utc).date()
+    slugs = [
+        f"{actif}-up-or-down-on-{mois[jour.month - 1]}-{jour.day}-{jour.year}"
+        for decalage in range(0, JOURS_A_SONDER)
+        for jour in (aujourd_hui + timedelta(days=decalage),)
+        for actif in ("bitcoin", "ethereum", "solana")
+    ]
+    trouves: dict[str, dict] = {}
+    for depart in range(0, len(slugs), 20):
+        tranche = slugs[depart:depart + 20]
+        try:
+            reponse = session.get(
+                GAMMA,
+                params=[("slug", s) for s in tranche] + [("limit", "100")],
+                timeout=30,
+            )
+            reponse.raise_for_status()
+        except Exception as exc:  # noqa: BLE001
+            # Une tranche perdue n'est pas un univers vide : on le dit.
+            logger.warning("%d slugs illisibles : %s", len(tranche), exc)
+            continue
+        for marche in reponse.json():
+            if marche.get("closed"):
+                continue
+            slug = marche.get("slug") or ""
+            if slug:
+                trouves[slug] = marche
+    return list(trouves.values())
 
 
 def fin_de(marche: dict) -> datetime | None:
@@ -102,8 +150,12 @@ def examiner(client, marche: dict, maintenant: datetime, marge_entree: float):
     if fin is None:
         return None, "echeance illisible"
     restantes = (fin - maintenant).total_seconds() / 3600.0
+    if restantes <= 0:
+        # « cloture dans -0.1 h » ne veut rien dire pour qui lit la sortie.
+        # Un marche passe se dit passe.
+        return None, f"DEJA CLOS depuis {abs(restantes) * 60:.0f} min"
     if restantes < marge_entree:
-        return None, f"cloture dans {restantes:.1f} h"
+        return None, f"cloture dans {restantes:.1f} h -- trop pres pour entrer"
 
     try:
         jetons = json.loads(marche.get("clobTokenIds") or "[]")
