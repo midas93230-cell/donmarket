@@ -210,6 +210,7 @@ def main() -> int:
     from dotenv import load_dotenv
     from polymarket import SecureClient
 
+    from donmarket.making.runner import flatten
     from donmarket.store import vault
 
     parser = argparse.ArgumentParser()
@@ -249,6 +250,16 @@ def main() -> int:
 
     session = httpx.Client()
     debut = time.monotonic()
+
+    # AVERTISSEMENT D'HORIZON. Le 23/08 l'outil a ete lance avec 150 min alors
+    # que la sortie forcee tombait 47 h plus tard : il se serait arrete en
+    # laissant la position seule pendant deux jours, ce que la sortie forcee
+    # existe precisement pour empecher. On ne peut pas l'interdire -- relancer
+    # l'outil est legitime -- mais on refuse de le taire.
+    print(f"\nHorizon de cette session : {args.minutes:.0f} min.")
+    print("  Si la position n'est pas soldee d'ici la, RELANCER l'outil.")
+    print("  Une position up/down laissee sans surveillance jusqu'a sa")
+    print("  resolution ne vaut plus un prix : elle vaut 0 ou 1.")
     ouvert: dict | None = None
 
     try:
@@ -307,6 +318,33 @@ def main() -> int:
                 print(f"    {c['ecart_relatif'] * 100:>5.1f} % brut | achat "
                       f"{c['bid']:.3f} vente {c['ask']:.3f} | {c['parts']:.0f} parts "
                       f"= {c['cout']:.2f} $ | {c['heures']:.1f} h | {c['slug'][:30]}")
+
+            # LA VENTE, DES QUE L'ACHAT EST REMPLI. Sans elle l'outil achete
+            # puis liquide au marche : il paie l'ecart DEUX FOIS et la capture
+            # de 17 % devient une perte garantie. C'etait le defaut du premier
+            # jet, trouve le 23/08 juste apres le premier achat reel.
+            if ouvert is not None and args.arm and not ouvert.get("vente_posee"):
+                try:
+                    detenu = 0.0
+                    for ligne in flatten(client.list_positions()):
+                        if str(getattr(ligne, "token_id", "")) == ouvert["token_id"]:
+                            detenu = float(getattr(ligne, "size", 0) or 0)
+                    if detenu >= ouvert["parts"]:
+                        recu = client.place_limit_order(
+                            token_id=ouvert["token_id"], price=ouvert["ask"],
+                            size=detenu, side="SELL", post_only=True,
+                        )
+                        if bool(getattr(recu, "success",
+                                        getattr(recu, "ok", False))):
+                            ouvert["vente_posee"] = True
+                            gain = (ouvert["ask"] - ouvert["bid"]) * detenu
+                            print(f"\nACHAT REMPLI -> VENTE POSEE : {detenu:.0f} "
+                                  f"@ {ouvert['ask']:.3f} (gain vise "
+                                  f"{gain:+.2f} $)")
+                        else:
+                            logger.error("vente refusee : %s", recu)
+                except Exception as exc:  # noqa: BLE001
+                    logger.error("pose de la vente impossible : %s", exc)
 
             if ouvert is None and candidats and args.arm:
                 choix = candidats[0]
