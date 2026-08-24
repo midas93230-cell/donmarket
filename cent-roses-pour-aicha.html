@@ -1,0 +1,513 @@
+<title>Cent Roses pour Aicha</title>
+<link rel="stylesheet" href="https://fonts.googleapis.com/css2?family=Great+Vibes&family=Cormorant+Garamond:ital,wght@1,400;1,500;1,600&family=Jost:wght@200;300;400&display=swap">
+<style>
+  :root{
+    --noir:#030203;
+    --rouge:#A8112F;
+    --rouge-clair:#D4183A;
+    --or:#F0C87E;
+    --or-clair:#F7E2AE;
+    --blanc:#F2E9E4;
+    --blanc-doux:rgba(242,233,228,.78);
+  }
+  *{margin:0;padding:0;box-sizing:border-box}
+  html,body{height:100%}
+  body{
+    background:var(--noir);
+    color:var(--blanc);
+    font-family:'Jost',system-ui,sans-serif;
+    overflow:hidden;
+  }
+  canvas{position:fixed;inset:0;display:block}
+  .dedicace{
+    position:fixed;top:3.5vh;left:50%;transform:translateX(-50%);
+    width:min(94vw,680px);text-align:center;pointer-events:none;z-index:2;
+  }
+  .pour{
+    font-family:'Cormorant Garamond',Georgia,serif;font-style:italic;
+    font-weight:500;font-size:clamp(1.05rem,3.1vw,1.5rem);
+    color:var(--blanc-doux);letter-spacing:.02em;
+    opacity:0;transform:translateY(10px);
+    transition:opacity 2s ease .1s,transform 2s ease .1s;
+  }
+  .nom{
+    font-family:'Great Vibes','Cormorant Garamond',cursive;
+    font-size:clamp(3rem,13.5vw,5.6rem);line-height:1.12;
+    background:linear-gradient(100deg,#C9A15A 0%,#F7E2AE 22%,#FFF7DE 40%,#E8C477 58%,#FFF3D0 78%,#C9A15A 100%);
+    background-size:230% auto;
+    -webkit-background-clip:text;background-clip:text;
+    -webkit-text-fill-color:transparent;color:transparent;
+    filter:drop-shadow(0 0 28px rgba(240,200,126,.45)) drop-shadow(0 0 80px rgba(240,200,126,.22));
+    animation:shimmer 5.5s linear infinite;
+    opacity:0;transform:translateY(14px) scale(.96);
+    transition:opacity 2.6s ease .7s,transform 2.6s cubic-bezier(.2,.8,.2,1) .7s;
+    text-wrap:balance;
+  }
+  @keyframes shimmer{to{background-position:230% center}}
+  .dedicace.p1 .pour,.dedicace.p1 .nom{opacity:1;transform:none}
+  .bas{
+    position:fixed;bottom:3.8vh;left:50%;transform:translateX(-50%);
+    width:min(94vw,680px);text-align:center;pointer-events:none;z-index:2;
+  }
+  .compte{
+    font-weight:200;font-size:clamp(3rem,12vw,5.4rem);
+    letter-spacing:.04em;line-height:1;
+    font-variant-numeric:tabular-nums;
+    color:var(--blanc);
+    text-shadow:0 0 30px rgba(212,24,58,.6),0 0 90px rgba(212,24,58,.3);
+    opacity:0;transition:opacity 1.4s ease;
+  }
+  .roses-mot{
+    font-weight:300;font-size:clamp(.78rem,2.3vw,1rem);
+    letter-spacing:.5em;text-transform:uppercase;
+    color:#E8657F;margin-top:.35em;text-indent:.5em;
+    text-shadow:0 0 18px rgba(212,24,58,.55);
+    opacity:0;transition:opacity 1.4s ease .2s;
+  }
+  .bas.p2 .compte,.bas.p2 .roses-mot{opacity:1}
+  .raison{
+    font-family:'Cormorant Garamond',Georgia,serif;font-style:italic;
+    font-weight:400;font-size:clamp(1.1rem,3.3vw,1.5rem);
+    color:var(--or-clair);margin-top:.9em;text-wrap:balance;
+    text-shadow:0 0 24px rgba(240,200,126,.35),0 1px 12px rgba(3,2,3,.9);
+    opacity:0;transform:translateY(8px);
+    transition:opacity 2.6s ease,transform 2.6s ease;
+  }
+  .bas.p3 .raison{opacity:1;transform:none}
+  #rejouer{
+    position:fixed;top:2.2vh;right:2.4vh;z-index:5;
+    background:rgba(3,2,3,.5);border:1px solid rgba(240,200,126,.28);
+    color:rgba(240,200,126,.72);font-family:'Jost',sans-serif;
+    font-size:.64rem;letter-spacing:.26em;text-transform:uppercase;text-indent:.26em;
+    padding:.6em 1.2em;border-radius:999px;cursor:pointer;
+    opacity:0;transition:opacity 1.5s ease 3s,color .3s,border-color .3s,background .3s;
+  }
+  #rejouer.visible{opacity:1}
+  #rejouer:hover,#rejouer:focus-visible{color:#FFF3D0;border-color:#F7E2AE;background:rgba(240,200,126,.12);outline:none}
+</style>
+
+<canvas id="scene"></canvas>
+
+<div class="dedicace" id="dedicace">
+  <div class="pour">Pour la femme de ma vie,</div>
+  <div class="nom">Mami Aicha Ndiaye</div>
+</div>
+<div class="bas" id="bas">
+  <div class="compte" id="compte">0</div>
+  <div class="roses-mot">roses</div>
+  <div class="raison">Cent roses, et pas une seule n&rsquo;est aussi belle que toi.</div>
+</div>
+<button id="rejouer" aria-label="Rejouer l'animation">Rejouer</button>
+
+<script>
+(function(){
+  'use strict';
+  const canvas=document.getElementById('scene');
+  const ctx=canvas.getContext('2d');
+  const compteEl=document.getElementById('compte');
+  const dedicace=document.getElementById('dedicace');
+  const bas=document.getElementById('bas');
+  const btn=document.getElementById('rejouer');
+  const reduced=matchMedia('(prefers-reduced-motion: reduce)').matches;
+
+  const N=100, T_START=1.3, STAG=0.093, BLOOM=1.15;
+  const T_ALL=T_START+(N-1)*STAG+BLOOM;          // ~12.6 : all bloomed
+
+  const easeOutC=x=>1-Math.pow(1-x,3);
+  const easeBack=x=>{const c1=1.4,c3=c1+1;return 1+c3*Math.pow(x-1,3)+c1*Math.pow(x-1,2)};
+  const clamp01=x=>Math.max(0,Math.min(1,x));
+  const rnd=(a,b)=>a+Math.random()*(b-a);
+
+  let W,H,DPR,roses=[],leaves=[],sparkles=[],petalsRain=[],glints=[],dust=[],
+      t0=0,prev=0,shownCount=-1,finale=false;
+
+  /* ---------- deep red velvet palettes ---------- */
+  function mkPal(){
+    const bases=[[168,17,47],[150,12,40],[186,22,54],[132,9,34],[172,20,44]];
+    const b=bases[(Math.random()*bases.length)|0].map(v=>v+rnd(-8,8));
+    const mul=(m,l)=>'rgb('+b.map(v=>Math.max(0,Math.min(255,Math.round(v*m+(l||0))))).join(',')+')';
+    return{mul,dark:mul(0.30),deep:mul(0.55)};
+  }
+
+  /* ---------- one procedural spiral rose (top view) ---------- */
+  function mkRose(x,y,size,bloomAt){
+    const rings=[
+      {f0:0.00,f1:0.22,n:3},{f0:0.15,f1:0.38,n:4},{f0:0.30,f1:0.55,n:5},
+      {f0:0.45,f1:0.72,n:7},{f0:0.60,f1:0.88,n:9},{f0:0.76,f1:1.00,n:11}
+    ];
+    const pal=mkPal();
+    const petals=[];
+    rings.forEach((R,ri)=>{
+      const off=rnd(0,Math.PI*2);
+      for(let i=0;i<R.n;i++){
+        const tj=rnd(0.82,1.16);        // each petal its own shade of red
+        petals.push({
+          ring:ri,
+          ri:R.f0*size*rnd(0.88,1.1),
+          ro:R.f1*size*rnd(0.88,1.12),
+          a0:off+(i/R.n)*Math.PI*2+rnd(-0.22,0.22),
+          sweep:(Math.PI*2/R.n)*rnd(1.18,1.45),
+          bulge:rnd(0.10,0.22),
+          wob:rnd(0,Math.PI*2),
+          wob2:rnd(2,4.5),
+          lipA:rnd(0.3,0.62),
+          cDark:pal.mul(0.30*tj),
+          cDeep:pal.mul(0.55*tj),
+          cMid:pal.mul(0.88*tj),
+          cEdge:pal.mul(1.16*tj,8),
+          cLip:pal.mul(1.36*tj,26)
+        });
+      }
+    });
+    return{x,y,size,bloomAt,petals,nR:rings.length,pal,
+           ph:rnd(0,Math.PI*2),sprite:null,burst:false};
+  }
+
+  function petalOuter(c,p,rScale,twist,s0,s1){
+    const STEPS=13;
+    s0=s0||0;s1=s1===undefined?1:s1;
+    for(let k=0;k<=STEPS;k++){
+      const s=s0+(k/STEPS)*(s1-s0);
+      const a=p.a0+twist+s*p.sweep;
+      const r=(p.ro*(1+p.bulge*Math.sin(s*Math.PI))
+              +p.ro*0.05*Math.sin(s*p.wob2*Math.PI+p.wob))*rScale;
+      k?c.lineTo(Math.cos(a)*r,Math.sin(a)*r):c.moveTo(Math.cos(a)*r,Math.sin(a)*r);
+    }
+  }
+
+  function drawRoseInto(c,rose,prog){
+    const {pal,size,nR}=rose;
+    /* dark base disc grounds the flower */
+    if(prog>0.05){
+      c.beginPath();
+      c.arc(0,0,size*1.02*Math.min(1,prog*2),0,Math.PI*2);
+      c.fillStyle=pal.dark;
+      c.fill();
+    }
+    for(const p of rose.petals){
+      const st=(p.ring/nR)*0.72, rp=clamp01((prog-st)/0.38);
+      if(rp<=0)continue;
+      const e=easeOutC(rp);
+      const rScale=0.55+0.45*easeBack(rp);
+      const twist=-(1-e)*0.7;
+      c.beginPath();
+      petalOuter(c,p,rScale,twist);
+      const ai=p.a0+twist, af=ai+p.sweep;
+      c.lineTo(Math.cos(af)*p.ri*rScale,Math.sin(af)*p.ri*rScale);
+      c.arc(0,0,p.ri*rScale,af,ai,true);
+      c.closePath();
+      /* gradient nudged toward the petal so rings never read as circles */
+      const am=p.a0+twist+p.sweep*0.5;
+      const gx=Math.cos(am)*p.ri*rScale*0.5, gy=Math.sin(am)*p.ri*rScale*0.5;
+      const g=c.createRadialGradient(gx,gy,Math.max(0.5,p.ri*rScale*0.55),gx,gy,Math.max(1,p.ro*rScale*1.05));
+      g.addColorStop(0,p.cDark);
+      g.addColorStop(0.45,p.cDeep);
+      g.addColorStop(0.82,p.cMid);
+      g.addColorStop(1,p.cEdge);
+      c.fillStyle=g;
+      c.globalAlpha=e;
+      c.fill();
+      /* the petal lip catches the light — only part of the rim */
+      c.beginPath();
+      petalOuter(c,p,rScale,twist,0.14,0.86);
+      c.strokeStyle=p.cLip;
+      c.globalAlpha=e*p.lipA;
+      c.lineWidth=Math.max(0.7,size*0.026);
+      c.lineCap='round';
+      c.stroke();
+      c.globalAlpha=1;
+    }
+    /* tight bud heart */
+    if(prog>0.02){
+      const bs=Math.min(1,prog*3);
+      c.beginPath();
+      c.arc(0,0,size*0.13*bs,0,Math.PI*2);
+      c.fillStyle=pal.dark;
+      c.fill();
+      c.beginPath();
+      c.arc(size*0.03,0,size*0.09*bs,0.4,4.6);
+      c.strokeStyle=pal.deep;
+      c.lineWidth=Math.max(0.6,size*0.03);
+      c.stroke();
+    }
+  }
+
+  function spriteOf(rose){
+    if(rose.sprite)return rose.sprite;
+    const S=Math.ceil(rose.size*1.14), cv=document.createElement('canvas');
+    cv.width=cv.height=S*2*2;
+    const c=cv.getContext('2d');
+    c.setTransform(2,0,0,2,S*2/1,S*2/1);
+    c.setTransform(2,0,0,2,S*2,S*2);
+    drawRoseInto(c,rose,1);
+    rose.sprite={cv,half:S*2};
+    return rose.sprite;
+  }
+
+  /* ---------- layout : a dense dome of 100 roses ---------- */
+  function build(){
+    roses=[];sparkles=[];petalsRain=[];glints=[];dust=[];finale=false;shownCount=-1;
+    const cx=W/2, cy=H*0.545;
+    const rx=Math.min(W*0.46,360), ry=Math.min(H*0.29,330);
+    const base=Math.min(W,H)*0.088;
+    const pts=[];
+    let guard=0;
+    while(pts.length<N&&guard<9000){
+      guard++;
+      const a=rnd(0,Math.PI*2), r=Math.sqrt(Math.random());
+      const x=cx+Math.cos(a)*rx*r, y=cy+Math.sin(a)*ry*r;
+      const d=r;
+      const size=base*(1-0.42*d*d)*rnd(0.88,1.12);
+      let ok=true;
+      for(const q of pts)
+        if(Math.hypot(x-q.x,y-q.y)<(size+q.size)*0.52){ok=false;break;}
+      if(ok||guard%90===0)pts.push({x,y,size,d});
+    }
+    /* bloom from the heart of the bouquet outward, with a soft spiral */
+    pts.sort((p,q)=>(p.d-q.d)||(Math.atan2(p.y-cy,p.x-cx)-Math.atan2(q.y-cy,q.x-cx)));
+    pts.forEach((p,i)=>{
+      roses.push(mkRose(p.x,p.y,p.size,T_START+i*STAG+rnd(0,0.12)));
+    });
+    /* draw order : back (top) first, front (bottom) last */
+    roses.sort((a,b)=>a.y-b.y);
+
+    /* dark leaves peeking around the dome */
+    leaves=[];
+    for(let i=0;i<26;i++){
+      const a=rnd(0,Math.PI*2);
+      leaves.push({
+        x:cx+Math.cos(a)*rx*rnd(0.92,1.06),
+        y:cy+Math.sin(a)*ry*rnd(0.92,1.06),
+        ang:a+rnd(-0.4,0.4),
+        len:base*rnd(0.8,1.4),
+        w:base*rnd(0.26,0.4),
+        tone:Math.random()<.5?'#14290f':'#1C3A18'
+      });
+    }
+    /* floating gold dust */
+    for(let i=0;i<26;i++)dust.push({
+      x:Math.random()*W,y:Math.random()*H,
+      ph:rnd(0,Math.PI*2),sp:rnd(.1,.3),amp:rnd(14,50),
+      sz:rnd(.6,1.6),tw:rnd(.8,2)
+    });
+    /* dew glints on the bloomed roses */
+    for(let i=0;i<40;i++)glints.push({idx:(Math.random()*N)|0,
+      oa:rnd(0,Math.PI*2),or:Math.sqrt(Math.random())*0.8,
+      ph:rnd(0,Math.PI*2),sp:rnd(0.5,1.3)});
+  }
+
+  function resize(){
+    DPR=Math.min(devicePixelRatio||1,2);
+    W=innerWidth;H=innerHeight;
+    canvas.width=W*DPR;canvas.height=H*DPR;
+    canvas.style.width=W+'px';canvas.style.height=H+'px';
+    ctx.setTransform(DPR,0,0,DPR,0,0);
+    build();
+  }
+
+  /* ---------- ambient pieces ---------- */
+  function drawLeaves(t){
+    const a=clamp01((t-T_START)/(T_ALL-T_START));
+    if(a<=0)return;
+    ctx.globalAlpha=a;
+    for(const l of leaves){
+      ctx.save();
+      ctx.translate(l.x,l.y);ctx.rotate(l.ang);
+      ctx.beginPath();
+      ctx.moveTo(0,0);
+      ctx.bezierCurveTo(l.w,-l.len*0.35,l.w*0.6,-l.len*0.85,0,-l.len);
+      ctx.bezierCurveTo(-l.w*0.6,-l.len*0.85,-l.w,-l.len*0.35,0,0);
+      ctx.fillStyle=l.tone;
+      ctx.fill();
+      ctx.restore();
+    }
+    ctx.globalAlpha=1;
+  }
+
+  function drawDust(t,dt){
+    ctx.globalCompositeOperation='lighter';
+    for(const d of dust){
+      d.y-=3*dt;
+      if(d.y<-10){d.y=H+10;d.x=Math.random()*W;}
+      const x=d.x+Math.sin(t*d.sp+d.ph)*d.amp;
+      const tw=0.25+0.75*((Math.sin(t*d.tw+d.ph*3)+1)/2);
+      ctx.globalAlpha=tw*0.4;
+      ctx.beginPath();
+      ctx.arc(x,d.y,d.sz,0,Math.PI*2);
+      ctx.fillStyle='rgba(240,200,126,1)';
+      ctx.fill();
+    }
+    ctx.globalAlpha=1;
+    ctx.globalCompositeOperation='source-over';
+  }
+
+  function drawSparkles(dt){
+    if(!sparkles.length)return;
+    ctx.globalCompositeOperation='lighter';
+    for(let i=sparkles.length-1;i>=0;i--){
+      const s=sparkles[i];
+      s.life+=dt;
+      if(s.life>s.max){sparkles.splice(i,1);continue;}
+      s.x+=s.vx*dt;s.y+=s.vy*dt;s.vy+=30*dt;
+      const a=1-s.life/s.max;
+      ctx.globalAlpha=a*0.9;
+      ctx.beginPath();
+      ctx.arc(s.x,s.y,s.sz*(1-s.life/s.max*0.5),0,Math.PI*2);
+      ctx.fillStyle=s.gold?'rgba(247,226,174,1)':'rgba(255,120,150,1)';
+      ctx.fill();
+    }
+    ctx.globalAlpha=1;
+    ctx.globalCompositeOperation='source-over';
+  }
+
+  function drawGlints(t){
+    ctx.globalCompositeOperation='lighter';
+    for(const g of glints){
+      const r=roses[g.idx];
+      if(!r||!r.sprite)continue;
+      const tw=Math.sin(t*g.sp+g.ph);
+      if(tw<0.82)continue;
+      const k=(tw-0.82)/0.18;
+      const x=r.x+Math.cos(g.oa)*r.size*g.or;
+      const y=r.y+Math.sin(g.oa)*r.size*g.or;
+      const s=r.size*0.09*k;
+      ctx.globalAlpha=k*0.95;
+      ctx.fillStyle='rgba(255,245,235,1)';
+      ctx.beginPath();ctx.arc(x,y,s*0.5,0,Math.PI*2);ctx.fill();
+      ctx.strokeStyle='rgba(255,245,235,.85)';
+      ctx.lineWidth=0.9;ctx.lineCap='round';
+      ctx.beginPath();
+      ctx.moveTo(x-s*2.2,y);ctx.lineTo(x+s*2.2,y);
+      ctx.moveTo(x,y-s*2.2);ctx.lineTo(x,y+s*2.2);
+      ctx.stroke();
+    }
+    ctx.globalAlpha=1;
+    ctx.globalCompositeOperation='source-over';
+  }
+
+  function drawRain(t,dt){
+    if(!reduced&&t>T_ALL&&petalsRain.length<24&&Math.random()<.1)
+      petalsRain.push({
+        x:Math.random()*W,y:-14,
+        vy:rnd(22,50),ph:rnd(0,Math.PI*2),amp:rnd(10,36),
+        rot:rnd(0,Math.PI*2),vr:rnd(-1.2,1.2),
+        sz:rnd(4,8),col:Math.random()<.6?'#8E0C28':'#B01537'
+      });
+    for(let i=petalsRain.length-1;i>=0;i--){
+      const p=petalsRain[i];
+      p.y+=p.vy*dt;p.x+=Math.cos(t*1.1+p.ph)*p.amp*dt;p.rot+=p.vr*dt;
+      if(p.y>H+16){petalsRain.splice(i,1);continue;}
+      ctx.save();
+      ctx.translate(p.x,p.y);ctx.rotate(p.rot);
+      ctx.beginPath();
+      ctx.moveTo(0,0);
+      ctx.bezierCurveTo(p.sz,-p.sz*0.6,p.sz*0.8,-p.sz*1.7,0,-p.sz*2);
+      ctx.bezierCurveTo(-p.sz*0.8,-p.sz*1.7,-p.sz,-p.sz*0.6,0,0);
+      ctx.fillStyle=p.col;
+      ctx.globalAlpha=0.9;
+      ctx.fill();
+      ctx.restore();
+    }
+    ctx.globalAlpha=1;
+  }
+
+  /* ---------- main loop ---------- */
+  function frame(now){
+    if(!t0){t0=now;prev=now;}
+    const t=reduced?999:(now-t0)/1000;
+    const dt=Math.min(0.05,(now-prev)/1000)||0.016;
+    prev=now;
+
+    /* black velvet room with a faint warm light from above */
+    ctx.fillStyle='#030203';
+    ctx.fillRect(0,0,W,H);
+    const warm=ctx.createRadialGradient(W/2,-H*0.1,0,W/2,-H*0.1,H*0.9);
+    warm.addColorStop(0,'rgba(120,84,40,0.10)');
+    warm.addColorStop(1,'rgba(120,84,40,0)');
+    ctx.fillStyle=warm;
+    ctx.fillRect(0,0,W,H);
+
+    drawDust(t,dt);
+    drawLeaves(t);
+
+    /* the hundred roses */
+    let count=0;
+    for(const r of roses){
+      const prog=reduced?1:clamp01((t-r.bloomAt)/BLOOM);
+      if(prog>=1){
+        count++;
+        if(!r.burst){
+          r.burst=true;
+          if(!reduced)for(let k=0;k<7;k++){
+            const a=rnd(0,Math.PI*2),sp=rnd(20,90);
+            sparkles.push({x:r.x,y:r.y,vx:Math.cos(a)*sp,vy:Math.sin(a)*sp-30,
+              life:0,max:rnd(0.5,1.1),sz:rnd(0.8,2),gold:Math.random()<.5});
+          }
+        }
+        const sp=spriteOf(r);
+        const br=1+0.012*Math.sin(t*0.9+r.ph);
+        const s=(r.size*1.14/ sp.half)*br*2;
+        ctx.drawImage(sp.cv,r.x-sp.half*s/2,r.y-sp.half*s/2,sp.half*s,sp.half*s);
+      }else if(prog>0){
+        ctx.save();
+        ctx.translate(r.x,r.y);
+        drawRoseInto(ctx,r,prog);
+        ctx.restore();
+      }
+    }
+
+    drawGlints(t);
+    drawSparkles(dt);
+    drawRain(t,dt);
+
+    /* soft vignette */
+    const v=ctx.createRadialGradient(W/2,H*0.5,Math.min(W,H)*0.4,W/2,H*0.5,Math.max(W,H)*0.85);
+    v.addColorStop(0,'rgba(3,2,3,0)');
+    v.addColorStop(1,'rgba(3,2,3,0.55)');
+    ctx.fillStyle=v;
+    ctx.fillRect(0,0,W,H);
+
+    /* golden ring when the hundredth rose opens */
+    if(count>=N&&!finale){finale=true;bas.classList.add('p3');}
+    if(finale&&!reduced){
+      const rt=(t-T_ALL)/1.2;
+      if(rt>0&&rt<1){
+        ctx.globalCompositeOperation='lighter';
+        ctx.strokeStyle='rgba(247,226,174,'+(0.45*(1-rt))+')';
+        ctx.lineWidth=2.2*(1-rt)+0.5;
+        ctx.beginPath();
+        ctx.arc(W/2,H*0.545,easeOutC(rt)*Math.max(W,H)*0.7,0,Math.PI*2);
+        ctx.stroke();
+        ctx.globalCompositeOperation='source-over';
+      }
+    }
+
+    /* text */
+    if(t>=0.7)dedicace.classList.add('p1');
+    if(count>0){
+      bas.classList.add('p2');
+      btn.classList.add('visible');
+      if(count!==shownCount){shownCount=count;compteEl.textContent=count;}
+    }
+    requestAnimationFrame(frame);
+  }
+
+  btn.addEventListener('click',()=>{
+    t0=0;
+    dedicace.classList.remove('p1');
+    bas.classList.remove('p2','p3');
+    compteEl.textContent='0';
+    build();
+  });
+
+  addEventListener('resize',resize);
+  resize();
+  if(reduced){
+    dedicace.classList.add('p1');
+    bas.classList.add('p2','p3');
+    btn.classList.add('visible');
+    compteEl.textContent=N;
+  }
+  requestAnimationFrame(frame);
+})();
+</script>
