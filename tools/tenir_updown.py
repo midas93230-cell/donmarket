@@ -72,6 +72,12 @@ PROFONDEUR_MIN = 15.0
 # suivant portait sur le 25, pas le 24. Sonder une semaine couvre les trous.
 JOURS_A_SONDER = 8
 
+# Multiple du minimum d'ordre a engager. NE JAMAIS DESCENDRE A 1 : un ordre
+# pose au minimum exact devient invendable des qu'il est rempli partiellement,
+# ou meme totalement si un arrondi le laisse un cheveu en dessous. Mesure du
+# 24/08 : 5 parts commandees, 4,9943 recues, vente refusee, 2,15 $ perdus.
+MULTIPLE_MINIMUM = 2.0
+
 
 def marches_updown(session) -> list[dict]:
     """Les Up/Down encore ouverts, decouverts par PLUSIEURS tris.
@@ -164,7 +170,18 @@ def examiner(client, marche: dict, maintenant: datetime, marge_entree: float):
     if not jetons:
         return None, "jetons absents"
 
-    taille_min = float(marche.get("orderMinSize") or 5)
+    # JAMAIS LE MINIMUM EXACT. Le 24/08, un ordre de 5 parts -- le minimum --
+    # a ete rempli a 4,9943 par arrondi. Toute vente est alors REFUSEE
+    # (« Size (4.99) lower than the minimum: 5 »), et la position part a la
+    # resolution : elle ne vaut plus un prix, elle vaut 0 ou 1. 2,15 $ perdus
+    # pour six MILLIEMES de part manquants.
+    #
+    # `making/core.exits` refusait deja de coter un « reliquat sous le minimum
+    # -- invendable tel quel » : le garde-fou existait a la SORTIE, il manquait
+    # a l'ENTREE. En engageant le double, une execution a 50 % laisse encore de
+    # quoi ressortir.
+    minimum = float(marche.get("orderMinSize") or 5)
+    taille_min = minimum * MULTIPLE_MINIMUM
     cotes = []
     for jeton in jetons:
         carnet = client.get_order_book(token_id=jeton)
@@ -282,16 +299,48 @@ def main() -> int:
                         ouvert["slug"], reste,
                     )
                     if args.arm:
+                        # ON LIQUIDE CE QU'ON DETIENT, pas ce qu'on a commande.
+                        # Le 24/08 la liquidation visait `ouvert["parts"]` = la
+                        # taille de l'ORDRE (5), alors que le remplissage avait
+                        # donne 4,9943 parts. Vendre 5 quand on en a 4,99 est
+                        # refuse, et le garde-fou ne se declenchait donc jamais.
+                        detenu = 0.0
                         try:
-                            client.cancel_all()
-                            client.place_market_order(
-                                token_id=ouvert["token_id"],
-                                shares=ouvert["parts"], side="SELL",
-                            )
-                            print("Position liquidee avant resolution.")
+                            for ligne in flatten(client.list_positions()):
+                                if str(getattr(ligne, "token_id", "")) == ouvert["token_id"]:
+                                    detenu = float(getattr(ligne, "size", 0) or 0)
                         except Exception as exc:  # noqa: BLE001
-                            logger.error("LIQUIDATION ECHOUEE : %s", exc)
-                            print("!! POSITION NON SOLDEE -- verifier a la main.")
+                            logger.error("inventaire illisible : %s", exc)
+                            detenu = ouvert["parts"]
+
+                        minimum = ouvert.get("min_ordre", 5.0)
+                        if detenu <= 0:
+                            print("Rien a liquider : aucune part detenue.")
+                        elif detenu < minimum:
+                            # LE PIEGE DU 24/08, dit franchement plutot que
+                            # tente puis rate. 4,9943 parts pour un minimum de
+                            # 5 : l'ordre est refuse quel que soit son type, et
+                            # la position part a la resolution. Une liquidation
+                            # qui ne PEUT PAS s'executer n'est pas un garde-fou,
+                            # et le taire ferait croire que la sortie a eu lieu.
+                            print(f"\n!! LIQUIDATION IMPOSSIBLE : {detenu:.4f} parts "
+                                  f"detenues pour un minimum d'ordre de {minimum:.0f}.")
+                            print(f"   La position ({detenu * ouvert['bid']:.2f} $) ira a "
+                                  f"la RESOLUTION : elle vaudra 0 ou 1.")
+                            print("   Cause : l'entree a engage le minimum exact, donc")
+                            print("   tout remplissage partiel devient invendable.")
+                        else:
+                            try:
+                                client.cancel_all()
+                                client.place_market_order(
+                                    token_id=ouvert["token_id"],
+                                    shares=detenu, side="SELL",
+                                )
+                                print(f"Position liquidee avant resolution : "
+                                      f"{detenu:.4f} parts.")
+                            except Exception as exc:  # noqa: BLE001
+                                logger.error("LIQUIDATION ECHOUEE : %s", exc)
+                                print("!! POSITION NON SOLDEE -- verifier a la main.")
                     return 0
 
             candidats, motifs = [], []
