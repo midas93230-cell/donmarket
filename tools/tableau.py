@@ -85,13 +85,37 @@ def _relever(client, session) -> dict:
     positions = []
     for p in flatten(client.list_positions()):
         valeur = float(p.current_value or 0)
-        positions.append({
+        parts = float(p.size or 0)
+        ligne = {
             "titre": str(p.title or "")[:60],
-            "parts": float(p.size or 0),
+            "parts": parts,
             "revient": float(p.avg_price or 0),
             "valeur": valeur,
             "pnl": float(p.cash_pnl or 0),
-        })
+            "bid": None,
+            "vendable": None,
+            "gain_si_vendu": None,
+        }
+        # CE QU'ON AURAIT DU VOIR PLUS TOT. Le 24/08, « Trump x Greenland »
+        # gagnait +63 % depuis la veille et personne ne l'a regardee : on
+        # courait apres des tickets a 2 $ sur des marches neufs pendant qu'un
+        # profit dormait dans le portefeuille. Le defaut n'etait pas technique,
+        # il etait dans l'attention -- donc il se corrige ici, en montrant ce
+        # qu'une position RAPPORTERAIT SI ON LA VENDAIT MAINTENANT.
+        if valeur > 0 and parts > 0:
+            try:
+                carnet = client.get_order_book(token_id=str(p.token_id))
+                if carnet.bids:
+                    bid = float(carnet.bids[-1].price)
+                    ligne["bid"] = bid
+                    ligne["gain_si_vendu"] = parts * (bid - ligne["revient"])
+                    # Le minimum d'ordre vaut 5 parts sur tout ce qu'on a
+                    # rencontre. Une position en dessous est INVENDABLE, et
+                    # c'est le piege qui a bloque 2,15 $ sur Solana le 24/08.
+                    ligne["vendable"] = parts >= 5.0
+            except Exception:  # noqa: BLE001
+                pass
+        positions.append(ligne)
     positions.sort(key=lambda x: -x["valeur"])
     etat["positions"] = positions
     etat["valeur_positions"] = sum(p["valeur"] for p in positions)
@@ -220,21 +244,48 @@ def _page(etat: dict) -> str:
                   if lignes else "<p class='vide'>aucun ordre au carnet</p>")
 
         lignes = ""
+        a_prendre = []
         for p in etat["positions"]:
-            if p["valeur"] <= 0 and p["pnl"] <= -p["revient"] * p["parts"] * 0.99:
-                classe = "morte"
+            classe = "morte" if p["valeur"] <= 0 else ""
+            gain = p["gain_si_vendu"]
+            if gain is None:
+                sortie = "&mdash;"
+            elif p["vendable"] is False:
+                sortie = (f"<b class='alarme'>BLOQUEE</b> "
+                          f"<span class='note'>{p['parts']:.2f} &lt; 5</span>")
+            elif gain > 0:
+                sortie = f"<b class='gain'>{gain:+.2f} $ a prendre</b>"
+                a_prendre.append((p["titre"], gain, p["bid"]))
+                classe = "profit"
             else:
-                classe = ""
+                sortie = f"<span class='note'>{gain:+.2f} $</span>"
             lignes += (
                 f"<tr class='{classe}'><td>{e(p['titre'])}</td>"
                 f"<td class='n'>{p['parts']:.2f}</td>"
                 f"<td class='n'>{p['revient']:.3f}</td>"
                 f"<td class='n'>{_euro(p['valeur'])}</td>"
-                f"<td class='n'>{p['pnl']:+.2f}</td></tr>"
+                f"<td class='n'>{p['pnl']:+.2f}</td>"
+                f"<td class='n'>{sortie}</td></tr>"
             )
         positions = (f"<table><tr><th>marche</th><th>parts</th><th>revient</th>"
-                     f"<th>valeur</th><th>pnl</th></tr>{lignes}</table>"
+                     f"<th>valeur</th><th>pnl</th><th>si vendu au bid</th></tr>"
+                     f"{lignes}</table>"
                      if lignes else "<p class='vide'>aucune position</p>")
+
+        # LA BANNIERE. Un chiffre au milieu d'un tableau se lit quand on le
+        # cherche ; celui-ci doit se voir quand on ne cherche rien.
+        if a_prendre:
+            total_a_prendre = sum(g for _, g, _ in a_prendre)
+            detail = " &middot; ".join(
+                f"{e(t[:34])} <b>{g:+.2f} $</b> au bid {b:.3f}"
+                for t, g, b in sorted(a_prendre, key=lambda x: -x[1])
+            )
+            positions = (
+                f"<div class='banniere'>{len(a_prendre)} position(s) EN GAIN "
+                f"et vendable(s) &mdash; <b>{total_a_prendre:+.2f} $</b> a "
+                f"prendre maintenant<div class='detail'>{detail}</div></div>"
+                + positions
+            )
 
         lignes = ""
         for u in etat["updown"]:
@@ -296,6 +347,11 @@ tr:last-child td{{border-bottom:none}}
 td.n{{font-variant-numeric:tabular-nums}}
 td.large{{color:var(--or);font-weight:600}}
 tr.morte td{{color:#6d7b89}}
+tr.profit{{background:rgba(99,178,174,.08)}}
+.gain{{color:var(--vert)}}
+.banniere{{background:rgba(99,178,174,.12);border:1px solid var(--vert);
+border-radius:10px;padding:14px 18px;margin:0 0 12px;color:var(--encre)}}
+.banniere .detail{{margin-top:6px;font-size:13px;color:var(--encre2)}}
 .alarme{{color:var(--alarme);font-weight:600}}
 .vide,.attente,.note{{color:var(--encre2);font-size:13px}}
 .gros{{font-size:22px;font-variant-numeric:tabular-nums}}
