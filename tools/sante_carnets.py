@@ -1,0 +1,275 @@
+# -*- coding: utf-8 -*-
+"""Mesure la SANTE des carnets Polymarket et publie `docs/health.html`.
+
+    .venv/Scripts/python tools/sante_carnets.py
+    .venv/Scripts/python tools/sante_carnets.py --marches 400
+
+Lecture seule : aucune cle, aucune authentification, aucun ordre. Tout vient
+des API publiques, donc n'importe qui peut reproduire le chiffre.
+
+## Le probleme que personne ne resout
+
+Avant de poser un ordre sur Polymarket, rien ne dit si le carnet est VIVANT.
+L'interface affiche un prix et un ecart ; elle ne dit pas que l'ecart de 19 %
+qu'on regarde est large parce que personne n'y echange, ni que le ticket
+minimal depasse le capital, ni que les deux cotes sont si desequilibres qu'on
+sera rempli d'un cote et jamais de l'autre.
+
+Ces quatre pieges nous ont coute cinq jours et de l'argent reel :
+  - un ordre au meilleur bid a passe QUATORZE HEURES sans un remplissage, sur
+    un carnet qui avait pourtant de la profondeur des deux cotes ;
+  - un ecart de 17,4 % s'est revele etre un carnet PAS ENCORE FORME, referme a
+    2 % en une heure des l'arrivee des vrais teneurs ;
+  - des marches « a 86 $/jour de recompenses et concurrence nulle » etaient des
+    marches morts dont la reponse etait acquise ;
+  - une position de 2,15 $ est devenue INVENDABLE pour six milliemes de part
+    sous le minimum d'ordre.
+
+## Le fait central que cette page publie
+
+MESURE DU 23/08, six marches au meme instant : la ou il y a du volume, l'ecart
+vaut UN TICK ; le seul ecart large etait sur le marche que personne ne trade.
+**Un ecart n'est pas une occasion a saisir avant les autres : c'est le prix de
+l'absence de contrepartie.** Cette page rend ce fait visible marche par marche,
+au lieu de laisser chacun le redecouvrir a ses frais.
+"""
+
+from __future__ import annotations
+
+import argparse
+import html
+import json
+import logging
+import sys
+import time
+from datetime import datetime, timezone
+
+sys.path.insert(0, ".")
+
+logging.basicConfig(level=logging.INFO, format="%(asctime)s  %(levelname)-7s %(message)s")
+logging.getLogger("httpx").setLevel(logging.WARNING)
+logger = logging.getLogger("sante")
+
+GAMMA = "https://gamma-api.polymarket.com/markets"
+CLOB = "https://clob.polymarket.com"
+
+# Volume 24 h sous lequel un carnet est repute ENDORMI. Mesure du 21/08 : un
+# ordre a passe 14 h au meilleur bid sur un marche a moins de 500 $/jour.
+VOLUME_ENDORMI = 500.0
+
+# Parts au meilleur prix en dessous desquelles il n'y a pas de contrepartie
+# reelle -- on ne peut ni etre rempli, ni ressortir.
+PROFONDEUR_MINCE = 20.0
+
+# Au-dela, l'ecart ne signale plus une occasion mais une absence de cotation.
+ECART_SUSPECT = 0.10
+
+
+def verdict(ecart_rel, volume, prof_bid, prof_ask, prix):
+    """Rend (code, phrase). Le code sert au tri et a la couleur."""
+    if prix is None or not (0.0 < prix < 1.0):
+        return "mort", "prix hors bande, marche resolu ou sans cotation"
+    if prof_bid < PROFONDEUR_MINCE and prof_ask < PROFONDEUR_MINCE:
+        return "mort", "aucune contrepartie des deux cotes"
+    if volume < VOLUME_ENDORMI and ecart_rel >= ECART_SUSPECT:
+        # LE PIEGE PRINCIPAL, et le plus tentant : un gros ecart sur un marche
+        # que personne ne trade. Il paie sur le papier et ne se remplit jamais.
+        return "piege", f"ecart large ({100 * ecart_rel:.0f} %) mais {volume:,.0f} $ de volume : personne pour vous servir"
+    if volume < VOLUME_ENDORMI:
+        return "lent", f"seulement {volume:,.0f} $ echanges en 24 h -- attente longue"
+    if prof_bid < PROFONDEUR_MINCE or prof_ask < PROFONDEUR_MINCE:
+        cote = "achat" if prof_bid < prof_ask else "vente"
+        return "desequilibre", f"cote {cote} presque vide : rempli d'un cote, coince de l'autre"
+    if ecart_rel <= 0.025:
+        return "efficient", "carnet serre et actif : rien a capturer, mais on entre et on sort"
+    return "tradable", f"ecart {100 * ecart_rel:.1f} % avec volume et profondeur des deux cotes"
+
+
+ORDRE = {"tradable": 0, "efficient": 1, "desequilibre": 2, "lent": 3,
+         "piege": 4, "mort": 5}
+
+
+def relever(session, nb_marches: int) -> list[dict]:
+    # GAMMA PLAFONNE A 100 PAR REPONSE, quoi qu'on mette dans `limit`. Demander
+    # 500 en rend 100 sans le dire -- on croit avoir balaye cinq fois plus de
+    # marches qu'on n'en a lu. Meme famille de piege que le plafond a
+    # offset=2100 qui faisait conclure « 0 finançable » le 22/08 : une API qui
+    # tronque en silence fabrique des conclusions fausses.
+    marches = []
+    for depart in range(0, nb_marches, 100):
+        try:
+            reponse = session.get(
+                GAMMA,
+                params={"closed": "false", "limit": "100", "offset": str(depart),
+                        "order": "volume24hr", "ascending": "false"},
+                timeout=40,
+            )
+            reponse.raise_for_status()
+        except Exception as exc:  # noqa: BLE001
+            logger.warning("page a l'offset %d illisible : %s", depart, exc)
+            break
+        page_lue = reponse.json()
+        if not page_lue:
+            break
+        marches.extend(page_lue)
+    marches = marches[:nb_marches]
+    logger.info("%d marches a sonder", len(marches))
+
+    lignes = []
+    for i, m in enumerate(marches):
+        if i and i % 50 == 0:
+            logger.info("  %d / %d", i, len(marches))
+        try:
+            jetons = json.loads(m.get("clobTokenIds") or "[]")
+        except ValueError:
+            continue
+        if not jetons:
+            continue
+        try:
+            r = session.get(f"{CLOB}/book", params={"token_id": jetons[0]}, timeout=20)
+            r.raise_for_status()
+            carnet = r.json()
+        except Exception:  # noqa: BLE001
+            continue
+        bids = carnet.get("bids") or []
+        asks = carnet.get("asks") or []
+        # Les carnets Polymarket arrivent PIRE PRIX EN PREMIER : le meilleur est
+        # en derniere position (mesure du 26/07). Lire [0] donnerait le pire.
+        bid = float(bids[-1]["price"]) if bids else None
+        ask = float(asks[-1]["price"]) if asks else None
+        pb = float(bids[-1]["size"]) if bids else 0.0
+        pa = float(asks[-1]["size"]) if asks else 0.0
+        if bid is None or ask is None or bid <= 0:
+            code, phrase = "mort", "un cote du carnet est vide"
+            ecart_rel = 0.0
+        else:
+            ecart_rel = (ask - bid) / bid
+            code, phrase = verdict(ecart_rel, float(m.get("volume24hr") or 0), pb, pa, bid)
+        taille_min = float(m.get("orderMinSize") or 5)
+        lignes.append({
+            "slug": str(m.get("slug") or ""),
+            "question": str(m.get("question") or "")[:90],
+            "bid": bid, "ask": ask,
+            "ecart_pct": 100 * ecart_rel,
+            "prof_bid": pb, "prof_ask": pa,
+            "volume24h": float(m.get("volume24hr") or 0),
+            "ticket_min": taille_min * (bid or 0),
+            "verdict": code, "phrase": phrase,
+        })
+    return lignes
+
+
+def page(lignes: list[dict], style: str) -> str:
+    e = html.escape
+    quand = datetime.now(timezone.utc).strftime("%d %B %Y, %H:%M UTC")
+    compte = {}
+    for l in lignes:
+        compte[l["verdict"]] = compte.get(l["verdict"], 0) + 1
+    total = len(lignes) or 1
+
+    tuiles = ""
+    for code, titre, note in (
+        ("tradable", "worth quoting", "spread, volume and depth on both sides"),
+        ("efficient", "tight and alive", "one tick — nothing to capture, but you can exit"),
+        ("piege", "traps", "wide spread, no volume — pays on paper, never fills"),
+        ("mort", "dead books", "no counterparty, or already resolved"),
+    ):
+        n = compte.get(code, 0)
+        tuiles += (f"<div class='t {code}'><span class='n'>{n}</span>"
+                   f"<span class='l'>{titre}</span><p>{note}</p></div>")
+
+    lignes.sort(key=lambda l: (ORDRE.get(l["verdict"], 9), -l["volume24h"]))
+    rangs = ""
+    for l in lignes[:120]:
+        rangs += (
+            f"<tr class='{l['verdict']}'>"
+            f"<td class='l'>{e(l['question'])}</td>"
+            f"<td class='num'>{l['volume24h']:,.0f}</td>"
+            f"<td class='num'>{l['ecart_pct']:.1f}%</td>"
+            f"<td class='num'>{l['prof_bid']:.0f} / {l['prof_ask']:.0f}</td>"
+            f"<td class='num'>${l['ticket_min']:.2f}</td>"
+            f"<td class='verdict'><b>{l['verdict']}</b><br><span>{e(l['phrase'])}</span></td>"
+            f"</tr>"
+        )
+
+    extra = """
+  .t.tradable .n{color:var(--teal)} .t.efficient .n{color:var(--ink)}
+  .t.piege .n{color:var(--brass)} .t.mort .n{color:var(--alarm)}
+  tr.tradable td:first-child{border-left:3px solid var(--teal)}
+  tr.piege td:first-child{border-left:3px solid var(--brass)}
+  tr.mort td{color:var(--ink-3)}
+  tr.desequilibre td:first-child{border-left:3px solid var(--brass)}
+  td.verdict b{text-transform:uppercase;font-size:11px;letter-spacing:.06em}
+  td.verdict span{color:var(--ink-3);font-size:12px}
+  td.num{font-family:var(--data);font-variant-numeric:tabular-nums;
+         text-align:right;white-space:nowrap}
+  td.l{max-width:340px}
+  .scroller{overflow-x:auto}
+  a{color:var(--teal)}
+"""
+    return f"""<title>Polymarket Book Health</title>
+<style>{style}{extra}</style>
+<div class="wrap">
+  <header class="stack masthead">
+    <p class="eyebrow">Polymarket &middot; Independent measurement</p>
+    <h1>Which books are actually alive</h1>
+    <p class="dek">Polymarket shows you a price and a spread. It does not tell you whether anyone is on the other side. These {len(lignes)} books were read directly from the CLOB and judged on four things: spread, volume, depth on <i>both</i> sides, and the minimum ticket you would have to commit.</p>
+    <p class="byline"><span>{quand}</span><span>Public endpoints, no API key</span><span>Read-only</span></p>
+  </header>
+
+  <div class="callout">
+    <p><b>The rule this page exists to make visible.</b> Measured across six markets at the same instant: wherever there is volume, the spread is one tick; the only wide spread sat on the market nobody trades. A wide spread is not an opportunity waiting to be spotted &mdash; it is the price of having no counterparty. Sorting by spread finds traps, not edges.</p>
+  </div>
+
+  <div class="thesis">{tuiles}</div>
+
+  <section>
+    <h2>Every book, worst-case first</h2>
+    <p class="sub">Sorted so the tradable ones come first and the traps are impossible to miss. Depth is shares at the best bid / best ask. Ticket is what the minimum order size actually costs you at the current bid &mdash; commit less than twice that and a partial fill can leave you holding something you cannot sell.</p>
+    <div class="scroller"><table>
+      <tr><th class="l">Market</th><th>24h volume</th><th>Spread</th><th>Depth bid / ask</th><th>Min ticket</th><th>Verdict</th></tr>
+      {rangs}
+    </table></div>
+  </section>
+
+  <footer>
+    <p>Built by Abdoul Lahad Amar. Method and source: <a href="https://github.com/midas93230-cell/donmarket">github.com/midas93230-cell/donmarket</a>.
+    Related: <a href="./">Builders Radar</a> &middot; <a href="./python.html">Python SDK traps</a> &middot; <a href="./strategies.html">Six strategies, measured</a>.</p>
+    <p>No affiliation with Polymarket. A snapshot goes stale &mdash; re-run the script rather than trusting an old page. Nothing here is financial advice.</p>
+  </footer>
+</div>"""
+
+
+def main() -> int:
+    import httpx
+
+    parser = argparse.ArgumentParser()
+    parser.add_argument("--marches", type=int, default=300)
+    args = parser.parse_args()
+
+    with httpx.Client() as session:
+        debut = time.monotonic()
+        lignes = relever(session, args.marches)
+
+    if not lignes:
+        print("aucun carnet lu -- rien n'est ecrit.")
+        return 1
+
+    with open("docs/_template.html", encoding="utf-8") as f:
+        style = f.read().split("<style>", 1)[1].split("</style>")[0]
+    with open("docs/health.html", "w", encoding="utf-8", newline="\n") as f:
+        f.write(page(lignes, style))
+    with open("docs/health.json", "w", encoding="utf-8", newline="\n") as f:
+        json.dump(lignes, f, indent=1, ensure_ascii=False)
+
+    compte = {}
+    for l in lignes:
+        compte[l["verdict"]] = compte.get(l["verdict"], 0) + 1
+    print(f"\ndocs/health.html -- {len(lignes)} carnets en {time.monotonic() - debut:.0f} s")
+    for code in sorted(compte, key=lambda c: ORDRE.get(c, 9)):
+        print(f"   {code:>14} : {compte[code]:>4}")
+    return 0
+
+
+if __name__ == "__main__":
+    raise SystemExit(main())
