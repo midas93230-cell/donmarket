@@ -1,6 +1,6 @@
 {
   "period": "MONTH",
-  "measured_at": "25 Aug 2026, 22:34 UTC",
+  "measured_at": "25 Aug 2026, 22:35 UTC",
   "rows": [
     {
       "builder": "MetaMask",
@@ -25,9 +25,9 @@
       "active_users": 3967,
       "taker_bps": 400.0,
       "maker_bps": null,
-      "blended_bps": 381.86,
-      "revenue_week": 167524.93976858314,
-      "revenue_per_user": 42.229629384568476,
+      "blended_bps": 382.16,
+      "revenue_week": 167656.70273020162,
+      "revenue_per_user": 42.26284414676118,
       "samples": 600,
       "exceeds_cap": true,
       "charges_nothing": false
@@ -41,8 +41,8 @@
       "taker_bps": 100.0,
       "maker_bps": null,
       "blended_bps": 99.95,
-      "revenue_week": 113223.54448164481,
-      "revenue_per_user": 61.30132348762578,
+      "revenue_week": 113223.81810081787,
+      "revenue_per_user": 61.301471630112545,
       "samples": 600,
       "exceeds_cap": false,
       "charges_nothing": false
@@ -55,9 +55,9 @@
       "active_users": 3688,
       "taker_bps": 50.0,
       "maker_bps": 25.0,
-      "blended_bps": 48.26,
-      "revenue_week": 95223.48308687864,
-      "revenue_per_user": 25.819816455227397,
+      "blended_bps": 48.34,
+      "revenue_week": 95390.36878884191,
+      "revenue_per_user": 25.86506745901353,
       "samples": 600,
       "exceeds_cap": false,
       "charges_nothing": false
@@ -71,8 +71,8 @@
       "taker_bps": 50.0,
       "maker_bps": 50.0,
       "blended_bps": 49.99,
-      "revenue_week": 78423.90133020347,
-      "revenue_per_user": 55.30599529633531,
+      "revenue_week": 78423.67591090404,
+      "revenue_per_user": 55.30583632644855,
       "samples": 600,
       "exceeds_cap": false,
       "charges_nothing": false
@@ -115,9 +115,9 @@
       "active_users": 108,
       "taker_bps": 5.0,
       "maker_bps": 0.0,
-      "blended_bps": 3.55,
-      "revenue_week": 10868.94446052302,
-      "revenue_per_user": 100.63837463447241,
+      "blended_bps": 3.56,
+      "revenue_week": 10923.10300483221,
+      "revenue_per_user": 101.13984263733528,
       "samples": 600,
       "exceeds_cap": false,
       "charges_nothing": false
@@ -131,8 +131,8 @@
       "taker_bps": 10.0,
       "maker_bps": 10.0,
       "blended_bps": 9.67,
-      "revenue_week": 5517.506427595579,
-      "revenue_per_user": 119.94579190425172,
+      "revenue_week": 5517.532827232936,
+      "revenue_per_user": 119.94636580941166,
       "samples": 600,
       "exceeds_cap": false,
       "charges_nothing": false
@@ -382,6 +382,6 @@
     "builders_measured": 25,
     "charging_nothing": 14,
     "volume_week_total": 450266756.37371707,
-    "revenue_week_total": 953868.4387086259
+    "revenue_week_total": 954221.3205160279
   }
 }
