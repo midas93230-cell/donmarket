@@ -88,6 +88,51 @@ def verdict(ecart_rel, volume, prof_bid, prof_ask, prix):
 ORDRE = {"tradable": 0, "efficient": 1, "desequilibre": 2, "lent": 3,
          "piege": 4, "mort": 5}
 
+# Dossier des releves quotidiens. C'EST LA SEULE CHOSE QUE PERSONNE D'AUTRE
+# N'AURA. Struct, Polynode et Snag vendent de la donnee brute et de la vitesse ;
+# on ne peut pas rivaliser la-dessus et on n'a pas a essayer. Ce qu'on fait
+# qu'ils ne font pas, c'est rendre un VERDICT -- et un verdict ne vaut vraiment
+# que dans la duree : « ce marche est mort depuis six jours » a une valeur
+# qu'aucun instantane n'a. Personne ne peut rattraper cet historique
+# retroactivement, parce qu'il faut avoir mesure les verdicts jour apres jour.
+HISTORIQUE = "docs/history"
+
+
+def charger_historique(jours: int = 30) -> dict[str, list[tuple[str, str]]]:
+    """Rend {slug: [(date, verdict), ...]} du plus ancien au plus recent."""
+    import glob
+    import os
+
+    series: dict[str, list[tuple[str, str]]] = {}
+    fichiers = sorted(glob.glob(os.path.join(HISTORIQUE, "*.json")))[-jours:]
+    for chemin in fichiers:
+        jour = os.path.basename(chemin)[:-5]
+        try:
+            with open(chemin, encoding="utf-8") as f:
+                releve = json.load(f)
+        except (OSError, ValueError):
+            # Un releve illisible ne doit pas faire echouer la page : on
+            # continue avec ce qu'on a, l'historique est un bonus.
+            continue
+        for slug, code in releve.items():
+            series.setdefault(slug, []).append((jour, code))
+    return series
+
+
+def persistance(serie: list[tuple[str, str]], code_actuel: str) -> int:
+    """Depuis combien de releves consecutifs ce marche porte-t-il ce verdict ?
+
+    Rend 1 si c'est nouveau (le releve du jour compte pour un). Un chiffre
+    eleve sur « mort » ou « piege » est le signal le plus utile de la page :
+    un carnet mort depuis une semaine ne se reveillera probablement pas.
+    """
+    compte = 1
+    for _, code in reversed(serie):
+        if code != code_actuel:
+            break
+        compte += 1
+    return compte
+
 
 def relever(session, nb_marches: int) -> list[dict]:
     # GAMMA PLAFONNE A 100 PAR REPONSE, quoi qu'on mette dans `limit`. Demander
