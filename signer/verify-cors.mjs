@@ -73,21 +73,34 @@ verifie("503 -> le code est lisible par la page",
 verifie("sans Origin -> aucun CORS, pas de plantage",
   Object.keys(corsHeaders(req("POST", null))).length === 0);
 
-// 7. CE SIGNEUR NE SIGNE QUE DES ORDRES.
+// 7. LES CHEMINS DANGEREUX SONT REFUSES, LE RESTE PASSE.
+// Une liste BLANCHE avait ete tentee d'abord : elle etait fausse par
+// construction, le SDK signant une trentaine de chemins. Le risque reel est
+// concentre sur la gestion des cles, la seule chose irreversible ici.
 verifie("signe /order", cheminAutorise("/order"));
 verifie("signe /orders", cheminAutorise("/orders"));
-verifie("ignore la chaine de requete", cheminAutorise("/order?foo=1"));
-verifie("normalise la barre finale", cheminAutorise("/order/"));
-verifie("refuse un chemin d'administration", !cheminAutorise("/auth/api-key"));
-verifie("refuse la suppression de cle", !cheminAutorise("/auth/api-keys/delete"));
-verifie("refuse un prefixe trompeur", !cheminAutorise("/order-evil"));
-verifie("refuse un sous-chemin non prevu", !cheminAutorise("/order/cancel"));
+verifie("signe /auth/derive-api-key (connexion)", cheminAutorise("/auth/derive-api-key"));
+verifie("signe /auth/api-key", cheminAutorise("/auth/api-key"));
+verifie("signe /balance-allowance", cheminAutorise("/balance-allowance"));
+verifie("signe /data/orders", cheminAutorise("/data/orders"));
+verifie("signe /cancel-all", cheminAutorise("/cancel-all"));
+verifie("signe /closed-positions", cheminAutorise("/closed-positions"));
+verifie("REFUSE la gestion de la cle builder", !cheminAutorise("/auth/builder-api-key"));
+verifie("REFUSE un sous-chemin de la cle builder", !cheminAutorise("/auth/builder-api-key/revoke"));
+verifie("REFUSE la liste des cles d'API", !cheminAutorise("/auth/api-keys"));
+verifie("REFUSE un sous-chemin des cles", !cheminAutorise("/auth/api-keys/123"));
+verifie("l'interdit resiste a la chaine de requete", !cheminAutorise("/auth/api-keys?x=1"));
+verifie("l'interdit resiste a la barre finale", !cheminAutorise("/auth/api-keys/"));
+// La frontiere est une BARRE : sans elle, /auth/api-key serait pris pour un
+// prefixe de /auth/api-keys et la connexion resterait cassee.
+verifie("/auth/api-key n'est PAS bloque par /auth/api-keys", cheminAutorise("/auth/api-key"));
 verifie("refuse un chemin absent", !cheminAutorise(undefined));
+verifie("refuse un chemin sans barre initiale", !cheminAutorise("auth/api-keys"));
 const chemin = await worker.fetch(
   new Request("https://signeur.test/", {
     method: "POST",
     headers: { Origin: BON, "content-type": "application/json" },
-    body: JSON.stringify({ method: "POST", path: "/auth/api-key", body: "{}" }),
+    body: JSON.stringify({ method: "POST", path: "/auth/builder-api-key", body: "{}" }),
   }),
   { AUTH_TOKEN: "x", BUILDER_API_KEY: "k", BUILDER_API_SECRET: "cw", BUILDER_API_PASSPHRASE: "p" },
 );

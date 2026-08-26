@@ -111,26 +111,40 @@ const ORIGINES_AUTORISEES = new Set([
 ]);
 
 /**
- * Chemins que ce signeur accepte de signer.
+ * Chemins que ce signeur REFUSE de signer.
  *
- * L'attribution builder ne sert qu'à poser des ordres : `/order` pour un ordre
- * seul, `/orders` pour un lot. Tout le reste est refusé — on préfère casser
- * bruyamment une fonctionnalité future que laisser une signature disponible
- * pour un usage qu'on n'a pas examiné.
+ * J'ai d'abord tenté l'inverse — une liste blanche de `/order` et `/orders`.
+ * Elle était fausse par construction : le SDK fait passer par cette même
+ * autorisation une TRENTAINE de chemins (`/auth/derive-api-key` à la connexion,
+ * `/balance-allowance`, `/data/orders`, `/closed-positions`, `/cancel-all`…).
+ * Une liste blanche aurait cassé l'application à chaque endpoint nouveau, et
+ * l'aurait cassée SILENCIEUSEMENT — un 403 que le SDK rend « Could not
+ * authorize », sans dire lequel.
  *
- * La comparaison ignore la chaîne de requête et normalise la barre finale,
- * pour qu'un `/order?x=1` ou un `/order/` ne contournent pas la liste.
+ * Le risque réel n'est pas réparti : il est concentré sur la gestion des CLÉS.
+ * Quelqu'un qui falsifie l'en-tête `Origin` ne doit pas pouvoir faire signer
+ * une révocation ou une rotation de NOTRE clé builder — c'est la seule chose
+ * ici qui soit irréversible. Le reste, au pire, passe des ordres attribués à
+ * nous, ce qui nous rapporte de l'argent.
+ *
+ * Une interdiction courte et exacte vaut mieux qu'une autorisation longue et
+ * fausse.
  */
-const CHEMINS_SIGNABLES = new Set(["/order", "/orders"]);
+const CHEMINS_INTERDITS = ["/auth/builder-api-key", "/auth/api-keys"];
 
 /** À incrémenter à chaque changement de comportement. Voir `x-signeur-revision`. */
-const REVISION = "3-chemins-restreints";
+const REVISION = "5-interdits-cibles";
 
 function cheminAutorise(chemin) {
-  if (typeof chemin !== "string") return false;
+  if (typeof chemin !== "string" || !chemin.startsWith("/")) return false;
   const sansRequete = chemin.split("?")[0].split("#")[0];
   const normalise = sansRequete.length > 1 ? sansRequete.replace(/\/+$/, "") : sansRequete;
-  return CHEMINS_SIGNABLES.has(normalise);
+  // Le prefixe couvre les sous-chemins (`/auth/api-keys/123`), mais la
+  // frontiere doit etre une BARRE : sans cela `/auth/api-keys-publiques`
+  // serait bloque par accident, et surtout `/order` bloquerait `/orders`.
+  return !CHEMINS_INTERDITS.some(
+    (interdit) => normalise === interdit || normalise.startsWith(`${interdit}/`),
+  );
 }
 
 function corsHeaders(request) {
@@ -220,7 +234,13 @@ export default {
     // builder ; on ne veut pas découvrir après coup qu'un point d'accès
     // destructeur l'accepte. La question « est-ce exploitable ? » n'a pas à
     // être tranchée si la surface est réduite à ce dont l'application a besoin.
-    if (!cheminAutorise(path)) return refuse(403, "chemin non signable", request);
+    // Le chemin refusé est NOMMÉ dans la réponse. Ce n'est pas de la
+    // journalisation — rien n'est conservé ici — mais sans lui, un appelant
+    // légitime bloqué par cette liste n'a aucun moyen de savoir quel chemin
+    // ajouter. C'est exactement ce qui a coûté une heure le 2026-08-26.
+    if (!cheminAutorise(path)) {
+      return refuse(403, `chemin non signable : ${String(path).slice(0, 120)}`, request);
+    }
 
     // Le client py-clob-client n'envoie PAS de timestamp : le signataire local
     // le fabrique lui-même, donc le signataire distant doit le faire aussi — et
@@ -263,4 +283,4 @@ export default {
 };
 
 export const _internals = { corsHeaders, ORIGINES_AUTORISEES, cheminAutorise,
-  CHEMINS_SIGNABLES, buildSignature, bytesToBase64Url, base64UrlToBytes, HEADER_FIELDS };
+  CHEMINS_INTERDITS, buildSignature, bytesToBase64Url, base64UrlToBytes, HEADER_FIELDS };

@@ -30,7 +30,16 @@
  * notre secret.
  */
 
+// PIEGE DE SURFACE, mesure le 2026-08-26 : toutes les operations ne sont pas
+// des METHODES du client. `fetchBalanceAllowance` est une fonction AUTONOME qui
+// prend le client en premier argument, alors que `listPositions`,
+// `listOpenOrders`, `cancelOrder` et `placeLimitOrder` sont bien des methodes.
+// Supposer l'uniformite rend « ... is not a function » a l'execution.
+// Et elles vivent dans une AUTRE entree du paquet : `@polymarket/client/actions`,
+// pas la racine. Importer depuis la racine rend « does not provide an export
+// named ... » a l'INSTANCIATION du module, pas a l'appel.
 import { createSecureClient, remoteBuilderSigning } from '@polymarket/client';
+import { fetchBalanceAllowance } from '@polymarket/client/actions';
 import { signerFrom } from '@polymarket/client/viem';
 import { createWalletClient, custom } from 'viem';
 import { polygon } from 'viem/chains';
@@ -61,6 +70,25 @@ const etat = {
 
 const $ = (id) => document.getElementById(id);
 const fmt = (n, d = 2) => (Number.isFinite(n) ? n.toFixed(d) : '—');
+
+/**
+ * Deroule la chaine des causes d'une erreur.
+ *
+ * Le SDK enveloppe : `SigningError.fromError(e, 'Could not authorize the
+ * builder-authenticated request')` cache la vraie cause dans `.cause`. Afficher
+ * seulement le message de surface, c'est afficher « ca a echoue » — ce qui a
+ * fait perdre une heure le 2026-08-26 sur une liste blanche trop etroite.
+ */
+export function causes(erreur, profondeur = 6) {
+  const vues = [];
+  let e = erreur;
+  while (e && vues.length < profondeur) {
+    const m = e.message || String(e);
+    if (m && !vues.includes(m)) vues.push(m);
+    e = e.cause;
+  }
+  return vues.join(' ← ');
+}
 
 function dire(message, genre = 'info') {
   const zone = $('journal');
@@ -210,12 +238,31 @@ async function connecter() {
     return;
   }
   try {
-    const walletClient = createWalletClient({ chain: polygon, transport: custom(window.ethereum) });
-    const [adresse] = await walletClient.requestAddresses();
+    // DEUX CLIENTS, ET C'EST OBLIGATOIRE. `createWalletClient` sans `account`
+    // rend un client « sans compte » : `requestAddresses()` donne bien
+    // l'adresse mais ne l'attache pas, et `signerFrom()` refuse alors avec
+    // « Wallet client with account is required ». Il faut donc demander
+    // l'adresse avec un premier client, puis en construire un second qui la
+    // porte.
+    const demandeur = createWalletClient({ chain: polygon, transport: custom(window.ethereum) });
+    const [adresse] = await demandeur.requestAddresses();
+    const walletClient = createWalletClient({
+      account: adresse,
+      chain: polygon,
+      transport: custom(window.ethereum),
+    });
     etat.adresse = adresse;
+
+    // `wallet` designe le PORTEFEUILLE QUI DETIENT LES FONDS, pas celui qui
+    // signe. Sur Polymarket les depots vivent le plus souvent dans un proxy ;
+    // confondre les deux fait accepter l'ordre puis le rejeter pour solde
+    // insuffisant, en pointant une adresse vide. Laisse vide pour que le SDK
+    // derive le Deposit Wallet standard.
+    const proxy = ($('proxy')?.value || '').trim();
     dire('Signature demandee pour deriver les identifiants CLOB…');
     etat.client = await createSecureClient({
       signer: signerFrom(walletClient),
+      ...(proxy ? { wallet: proxy } : {}),
       apiKey: remoteBuilderSigning({
         url: etat.config.signeur,
         ...(etat.config.jeton ? { headers: { Authorization: `Bearer ${etat.config.jeton}` } } : {}),
@@ -226,17 +273,19 @@ async function connecter() {
     dire(`Connecte : ${adresse}`, 'ok');
     await rafraichirPortefeuille();
   } catch (e) {
-    dire(`Connexion refusee : ${e.message || e}`, 'erreur');
+    dire(`Connexion refusee : ${causes(e)}`, "erreur");
   }
 }
 
 async function rafraichirPortefeuille() {
   if (!etat.client) return;
   try {
-    const solde = await etat.client.fetchBalanceAllowance({ assetType: 'COLLATERAL' });
+    const solde = await fetchBalanceAllowance(etat.client, { assetType: 'COLLATERAL' });
+    // Le solde arrive en unites de base a SIX decimales, comme l'USDC. L'afficher
+    // brut donnerait « 10468585 $ » et ferait croire a une fortune.
     $('solde').textContent = `${fmt(Number(solde.balance) / 1e6)} $`;
   } catch (e) {
-    dire(`Solde illisible : ${e.message || e}`, 'erreur');
+    dire(`Solde illisible : ${causes(e)}`, 'erreur');
   }
   try {
     const positions = (await toutes(etat.client.listPositions({}))).filter(
@@ -244,12 +293,12 @@ async function rafraichirPortefeuille() {
     );
     rendrePositions(positions);
   } catch (e) {
-    dire(`Positions illisibles : ${e.message || e}`, 'erreur');
+    dire(`Positions illisibles : ${causes(e)}`, 'erreur');
   }
   try {
     rendreOrdres(await toutes(etat.client.listOpenOrders()));
   } catch (e) {
-    dire(`Ordres illisibles : ${e.message || e}`, 'erreur');
+    dire(`Ordres illisibles : ${causes(e)}`, 'erreur');
   }
 }
 
@@ -328,7 +377,7 @@ async function annuler(ordre, rempli, total) {
     dire(`Ordre annule : ${ordre.side} ${total} @ ${ordre.price}`, 'ok');
     await rafraichirPortefeuille();
   } catch (e) {
-    dire(`Annulation refusee : ${e.message || e}`, 'erreur');
+    dire(`Annulation refusee : ${causes(e)}`, 'erreur');
   }
 }
 
@@ -463,7 +512,7 @@ async function poser() {
     dire(`Accepte — ${reponse.orderId || reponse.status || 'ok'}`, 'ok');
     await rafraichirPortefeuille();
   } catch (e) {
-    dire(`Refuse par le CLOB : ${e.message || e}`, 'erreur');
+    dire(`Refuse par le CLOB : ${causes(e)}`, 'erreur');
   }
 }
 
