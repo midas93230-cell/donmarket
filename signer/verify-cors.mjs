@@ -9,7 +9,7 @@
  */
 import worker, { _internals } from "./worker.js";
 
-const { corsHeaders, ORIGINES_AUTORISEES } = _internals;
+const { corsHeaders, ORIGINES_AUTORISEES, cheminAutorise } = _internals;
 const BON = "https://midas93230-cell.github.io";
 let echecs = 0;
 const verifie = (nom, condition) => {
@@ -72,6 +72,26 @@ verifie("503 -> le code est lisible par la page",
 // 7. Une requete sans Origin (curl, CLI) continue de marcher comme avant.
 verifie("sans Origin -> aucun CORS, pas de plantage",
   Object.keys(corsHeaders(req("POST", null))).length === 0);
+
+// 7. CE SIGNEUR NE SIGNE QUE DES ORDRES.
+verifie("signe /order", cheminAutorise("/order"));
+verifie("signe /orders", cheminAutorise("/orders"));
+verifie("ignore la chaine de requete", cheminAutorise("/order?foo=1"));
+verifie("normalise la barre finale", cheminAutorise("/order/"));
+verifie("refuse un chemin d'administration", !cheminAutorise("/auth/api-key"));
+verifie("refuse la suppression de cle", !cheminAutorise("/auth/api-keys/delete"));
+verifie("refuse un prefixe trompeur", !cheminAutorise("/order-evil"));
+verifie("refuse un sous-chemin non prevu", !cheminAutorise("/order/cancel"));
+verifie("refuse un chemin absent", !cheminAutorise(undefined));
+const chemin = await worker.fetch(
+  new Request("https://signeur.test/", {
+    method: "POST",
+    headers: { Origin: BON, "content-type": "application/json" },
+    body: JSON.stringify({ method: "POST", path: "/auth/api-key", body: "{}" }),
+  }),
+  { AUTH_TOKEN: "x", BUILDER_API_KEY: "k", BUILDER_API_SECRET: "cw", BUILDER_API_PASSPHRASE: "p" },
+);
+verifie("bout en bout : un chemin non signable est refuse en 403", chemin.status === 403);
 
 console.log(echecs ? `\n${echecs} verification(s) en echec` : "\ntoutes les verifications passent");
 process.exit(echecs ? 1 : 0);

@@ -110,6 +110,29 @@ const ORIGINES_AUTORISEES = new Set([
   "http://127.0.0.1:8000",
 ]);
 
+/**
+ * Chemins que ce signeur accepte de signer.
+ *
+ * L'attribution builder ne sert qu'à poser des ordres : `/order` pour un ordre
+ * seul, `/orders` pour un lot. Tout le reste est refusé — on préfère casser
+ * bruyamment une fonctionnalité future que laisser une signature disponible
+ * pour un usage qu'on n'a pas examiné.
+ *
+ * La comparaison ignore la chaîne de requête et normalise la barre finale,
+ * pour qu'un `/order?x=1` ou un `/order/` ne contournent pas la liste.
+ */
+const CHEMINS_SIGNABLES = new Set(["/order", "/orders"]);
+
+/** À incrémenter à chaque changement de comportement. Voir `x-signeur-revision`. */
+const REVISION = "3-chemins-restreints";
+
+function cheminAutorise(chemin) {
+  if (typeof chemin !== "string") return false;
+  const sansRequete = chemin.split("?")[0].split("#")[0];
+  const normalise = sansRequete.length > 1 ? sansRequete.replace(/\/+$/, "") : sansRequete;
+  return CHEMINS_SIGNABLES.has(normalise);
+}
+
 function corsHeaders(request) {
   const origin = request.headers.get("Origin") || "";
   if (!ORIGINES_AUTORISEES.has(origin)) return {};
@@ -189,6 +212,16 @@ export default {
     const path = payload && payload.path;
     if (!method || !path) return refuse(400, "`method` et `path` sont requis", request);
 
+    // CE SIGNEUR NE SIGNE QUE DES ORDRES.
+    //
+    // Sans cette barrière il signe n'importe quel `{method, path}` : il suffit
+    // de falsifier l'en-tête `Origin` avec curl pour obtenir notre signature
+    // sur un chemin arbitraire. Les en-têtes rendus nous authentifient comme
+    // builder ; on ne veut pas découvrir après coup qu'un point d'accès
+    // destructeur l'accepte. La question « est-ce exploitable ? » n'a pas à
+    // être tranchée si la surface est réduite à ce dont l'application a besoin.
+    if (!cheminAutorise(path)) return refuse(403, "chemin non signable", request);
+
     // Le client py-clob-client n'envoie PAS de timestamp : le signataire local
     // le fabrique lui-même, donc le signataire distant doit le faire aussi — et
     // le RENVOYER, sinon l'en-tête et le message signé divergeraient.
@@ -219,10 +252,15 @@ export default {
       headers: {
         "content-type": "application/json",
         "cache-control": "no-store",
+        // Marqueur de révision : sans lui, on ne peut pas distinguer « le
+        // déploiement n'a pas pris » de « le code est faux ». Une heure perdue
+        // le 2026-08-26 faute de pouvoir répondre à cette question.
+        "x-signeur-revision": REVISION,
         ...corsHeaders(request),
       },
     });
   },
 };
 
-export const _internals = { corsHeaders, ORIGINES_AUTORISEES, buildSignature, bytesToBase64Url, base64UrlToBytes, HEADER_FIELDS };
+export const _internals = { corsHeaders, ORIGINES_AUTORISEES, cheminAutorise,
+  CHEMINS_SIGNABLES, buildSignature, bytesToBase64Url, base64UrlToBytes, HEADER_FIELDS };
