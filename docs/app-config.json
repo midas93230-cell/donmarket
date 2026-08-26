@@ -1,0 +1,5 @@
+{
+  "_lisez_moi": "Aucun secret ici. Le signeur autorise les origines de sa liste sans jeton, precisement pour qu aucun secret ne soit jamais publie. Le code builder est public par conception : c est un identifiant, pas une cle.",
+  "signeur": "https://donmarket-signer.midas93230.workers.dev",
+  "builderCode": "0xfc74d798dceeb76af5d5a7b8b385729ae46e2eb29ffb971dd791a9164faf0162"
+}

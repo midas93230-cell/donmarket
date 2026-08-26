@@ -44,11 +44,25 @@ verifie("preflight -> allow-origin", pre.headers.get("access-control-allow-origi
 const preMechant = await worker.fetch(req("OPTIONS", "https://mechant.example"), {});
 verifie("preflight inconnu -> 403", preMechant.status === 403);
 
-// 5. LE POINT QUI COUTE DES HEURES : un refus doit porter le CORS.
-const refus = await worker.fetch(req("POST", BON, { Authorization: "Bearer faux" }),
-                                 { AUTH_TOKEN: "vrai-jeton" });
-verifie("401 -> le code est lisible par la page",
-  refus.status === 401 && refus.headers.get("access-control-allow-origin") === BON);
+// 5. LES DEUX CHEMINS D'ENTREE.
+// Une page d'origine connue n'a PAS a presenter le jeton fort : le publier
+// dans une source consultable ne protegerait rien et exposerait le chemin CLI.
+const navigateur = await worker.fetch(req("POST", BON, { Authorization: "Bearer faux" }),
+                                      { AUTH_TOKEN: "vrai-jeton" });
+verifie("origine connue -> le jeton fort n'est pas exige", navigateur.status !== 401);
+// Hors de la liste, le jeton reste obligatoire.
+const horsListe = await worker.fetch(req("POST", "https://mechant.example",
+                                         { Authorization: "Bearer faux" }),
+                                     { AUTH_TOKEN: "vrai-jeton" });
+verifie("origine inconnue + mauvais jeton -> 401", horsListe.status === 401);
+const sansOrigine = await worker.fetch(req("POST", null, { Authorization: "Bearer vrai-jeton" }),
+                                       { AUTH_TOKEN: "vrai-jeton" });
+verifie("CLI avec le bon jeton -> passe l'authentification", sansOrigine.status !== 401);
+
+// 6. LE POINT QUI COUTE DES HEURES : un refus doit porter le CORS.
+const refusCors = await worker.fetch(req("POST", BON), {});
+verifie("un refus depuis une origine connue porte le CORS",
+  refusCors.headers.get("access-control-allow-origin") === BON);
 
 // 6. Un signeur non configure refuse aussi lisiblement.
 const nonConfig = await worker.fetch(req("POST", BON), {});

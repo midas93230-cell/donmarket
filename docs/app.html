@@ -1,0 +1,275 @@
+<!doctype html>
+<html lang="fr">
+  <head>
+    <meta charset="utf-8" />
+    <meta name="viewport" content="width=device-width, initial-scale=1" />
+    <title>DONmarket — poser un ordre</title>
+    <meta
+      name="description"
+      content="Passer un ordre Polymarket depuis le navigateur, avec les garde-fous qui refusent les carnets morts et les tailles invendables."
+    />
+    <style>
+      :root {
+        --fond: #12100e;
+        --carte: #1b1815;
+        --bord: #2e2924;
+        --encre: #efe9e0;
+        --encre-2: #a89e91;
+        --encre-3: #6f665c;
+        --teal: #4ec9b0;
+        --laiton: #d4a24c;
+        --alarme: #e05c4b;
+      }
+      * {
+        box-sizing: border-box;
+      }
+      body {
+        margin: 0;
+        background: var(--fond);
+        color: var(--encre);
+        font: 15px/1.6 ui-sans-serif, system-ui, -apple-system, "Segoe UI", sans-serif;
+        padding: 2rem 1.25rem 4rem;
+      }
+      main {
+        max-width: 62rem;
+        margin: 0 auto;
+      }
+      h1 {
+        font-size: 1.6rem;
+        margin: 0 0 0.25rem;
+        letter-spacing: -0.01em;
+      }
+      .sous {
+        color: var(--encre-2);
+        margin: 0 0 2rem;
+        max-width: 46rem;
+      }
+      .carte {
+        background: var(--carte);
+        border: 1px solid var(--bord);
+        border-radius: 10px;
+        padding: 1.1rem 1.25rem;
+        margin-bottom: 1.1rem;
+      }
+      h2 {
+        font-size: 0.78rem;
+        text-transform: uppercase;
+        letter-spacing: 0.09em;
+        color: var(--encre-3);
+        margin: 0 0 0.85rem;
+      }
+      label {
+        display: block;
+        font-size: 0.8rem;
+        color: var(--encre-2);
+        margin-bottom: 0.25rem;
+      }
+      input,
+      select,
+      button {
+        font: inherit;
+        color: var(--encre);
+        background: #221e1a;
+        border: 1px solid var(--bord);
+        border-radius: 7px;
+        padding: 0.5rem 0.65rem;
+        width: 100%;
+      }
+      button {
+        cursor: pointer;
+        background: #2a2521;
+        font-weight: 600;
+      }
+      button:hover:not(:disabled) {
+        border-color: var(--teal);
+      }
+      button:disabled {
+        opacity: 0.45;
+        cursor: default;
+      }
+      .rangee {
+        display: grid;
+        gap: 0.8rem;
+        grid-template-columns: repeat(auto-fit, minmax(9rem, 1fr));
+        align-items: end;
+      }
+      pre {
+        background: #171310;
+        border: 1px solid var(--bord);
+        border-radius: 7px;
+        padding: 0.8rem;
+        overflow-x: auto;
+        font-size: 0.84rem;
+        color: var(--encre-2);
+        margin: 0.8rem 0 0;
+        white-space: pre-wrap;
+      }
+      .pastille {
+        display: inline-block;
+        font-size: 0.72rem;
+        text-transform: uppercase;
+        letter-spacing: 0.07em;
+        padding: 0.15rem 0.55rem;
+        border-radius: 999px;
+        border: 1px solid var(--bord);
+        color: var(--encre-3);
+      }
+      .pastille.tradable {
+        color: var(--teal);
+        border-color: var(--teal);
+      }
+      .pastille.efficient {
+        color: var(--encre);
+      }
+      .pastille.piege {
+        color: var(--laiton);
+        border-color: var(--laiton);
+      }
+      .pastille.mort,
+      .pastille.desequilibre {
+        color: var(--alarme);
+        border-color: var(--alarme);
+      }
+      #journal {
+        max-height: 19rem;
+        overflow-y: auto;
+        font-size: 0.85rem;
+      }
+      .ligne {
+        padding: 0.35rem 0;
+        border-bottom: 1px solid #241f1b;
+        color: var(--encre-2);
+      }
+      .ligne.ok {
+        color: var(--teal);
+      }
+      .ligne.erreur {
+        color: var(--alarme);
+      }
+      .note {
+        font-size: 0.84rem;
+        color: var(--encre-3);
+      }
+      ul {
+        margin: 0.4rem 0 0;
+        padding-left: 1.1rem;
+      }
+      li {
+        margin-bottom: 0.3rem;
+        color: var(--encre-2);
+        font-size: 0.88rem;
+      }
+      code {
+        background: #221e1a;
+        padding: 0.1rem 0.3rem;
+        border-radius: 4px;
+        font-size: 0.85em;
+      }
+    </style>
+  </head>
+  <body>
+    <main>
+      <h1>DONmarket — poser un ordre</h1>
+      <p class="sous">
+        Une interface Polymarket qui <strong>refuse des ordres</strong>. Avant
+        d'envoyer, elle confronte l'ordre au carnet réel et bloque les quatre
+        pièges qui coûtent de l'argent : le carnet mort, la taille invendable, la
+        vente hors marché, et l'ordre qui traverse l'écart. Votre clé privée reste
+        dans votre portefeuille&nbsp;; elle ne nous est jamais transmise.
+      </p>
+
+      <section class="carte">
+        <h2>1 · Portefeuille</h2>
+        <div class="rangee">
+          <div><button id="connecter">Connecter</button></div>
+          <div>
+            <label>Adresse</label>
+            <div id="adresse" class="note">non connecté</div>
+          </div>
+        </div>
+      </section>
+
+      <section class="carte">
+        <h2>2 · Marché</h2>
+        <div class="rangee">
+          <div style="grid-column: span 2">
+            <label for="slug">Slug du marché</label>
+            <input
+              id="slug"
+              list="suggestions"
+              placeholder="will-russia-invade-another-country-in-2026"
+            />
+            <datalist id="suggestions"></datalist>
+          </div>
+          <div>
+            <label for="issue">Issue</label>
+            <select id="issue">
+              <option value="0">première (Yes)</option>
+              <option value="1">seconde (No)</option>
+            </select>
+          </div>
+          <div><button id="charger">Lire le carnet</button></div>
+        </div>
+        <pre id="carnet">Aucun marché chargé.</pre>
+        <p style="margin: 0.7rem 0 0"><span id="verdict" class="pastille">—</span></p>
+      </section>
+
+      <section class="carte">
+        <h2>3 · Ordre</h2>
+        <div class="rangee">
+          <div>
+            <label for="cote">Côté</label>
+            <select id="cote">
+              <option value="BUY">Acheter</option>
+              <option value="SELL">Vendre</option>
+            </select>
+          </div>
+          <div>
+            <label for="prix">Prix</label>
+            <input id="prix" type="number" step="0.001" min="0" max="1" placeholder="0.14" />
+          </div>
+          <div>
+            <label for="parts">Parts</label>
+            <input id="parts" type="number" step="1" min="0" placeholder="25" />
+          </div>
+          <div><button id="poser">Poser l'ordre</button></div>
+        </div>
+        <p class="note" style="margin-top: 0.8rem">
+          L'ordre part en <code>post-only</code> : il est refusé plutôt que de
+          traverser l'écart et de payer les frais de preneur.
+        </p>
+      </section>
+
+      <section class="carte">
+        <h2>Journal</h2>
+        <div id="journal"></div>
+      </section>
+
+      <section class="carte">
+        <h2>Ce que cette page refuse, et pourquoi</h2>
+        <ul>
+          <li>
+            <strong>Carnet « mort » ou « piège »</strong> — un écart large sur un
+            marché sans volume paie sur le papier et ne se remplit jamais. Mesuré
+            le 26 août 2026 sur 800 carnets : là où il y a du volume, l'écart vaut
+            exactement un tick.
+          </li>
+          <li>
+            <strong>Taille au minimum exact</strong> — un remplissage partiel
+            laisse un reliquat sous le minimum d'ordre, donc invendable. Il faut
+            engager au moins deux fois <code>orderMinSize</code>.
+          </li>
+          <li>
+            <strong>Vente au-dessus du meilleur ask</strong> — hors marché, elle ne
+            peut pas se remplir, quel que soit le temps qu'elle attend.
+          </li>
+          <li>
+            <strong>Ordre qui traverse l'écart</strong> — vous devenez preneur et
+            payez les frais qu'un teneur évite.
+          </li>
+        </ul>
+      </section>
+    </main>
+    <script type="module" src="./app.js"></script>
+  </body>
+</html>

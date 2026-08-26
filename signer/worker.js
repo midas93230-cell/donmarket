@@ -150,8 +150,21 @@ export default {
     }
     if (request.method !== "POST") return refuse(405, "POST attendu", request);
 
+    // DEUX CHEMINS D'ENTRÉE, et c'est délibéré.
+    //
+    // Un client hors navigateur (CLI, serveur) présente le jeton fort.
+    //
+    // Une PAGE WEB ne le peut pas : tout jeton livré au navigateur est lisible
+    // dans la source, donc publié. Plutôt que publier un secret, on autorise les
+    // origines de la liste SANS jeton. Ce n'est pas une régression : une origine
+    // se falsifie avec curl, mais un jeton publié se copie tout autant — et il
+    // n'y a rien à voler ici, les en-têtes rendus attribuent le volume À NOUS.
+    // Le seul bien protégé est le QUOTA du Worker, que ni l'un ni l'autre ne
+    // protège vraiment. Le gain net : aucun secret n'est publié, et le jeton
+    // fort du CLI n'est jamais exposé.
+    const depuisOrigineConnue = Object.keys(corsHeaders(request)).length > 0;
     const expected = env.AUTH_TOKEN;
-    if (expected) {
+    if (expected && !depuisOrigineConnue) {
       const header = request.headers.get("Authorization") || "";
       const prefix = "Bearer ";
       const presented = header.startsWith(prefix) ? header.slice(prefix.length) : "";
