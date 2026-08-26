@@ -1,0 +1,15 @@
+{
+  "name": "donmarket-web",
+  "private": true,
+  "type": "module",
+  "description": "Application web DONmarket : passer un ordre Polymarket sans installer Python.",
+  "scripts": {
+    "build": "node node_modules/esbuild/bin/esbuild src/app.js --bundle --format=esm --target=es2022 --minify --outfile=../docs/app.js",
+    "test": "node src/app.test.mjs"
+  },
+  "dependencies": {
+    "@polymarket/client": "^0.6.0",
+    "esbuild": "^0.28.2",
+    "viem": "^2.0.0"
+  }
+}
