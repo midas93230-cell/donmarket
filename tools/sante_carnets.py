@@ -40,6 +40,7 @@ import argparse
 import html
 import json
 import logging
+import os
 import sys
 import time
 from datetime import datetime, timezone
@@ -157,8 +158,22 @@ def relever(session, nb_marches: int) -> list[dict]:
         if not page_lue:
             break
         marches.extend(page_lue)
-    marches = marches[:nb_marches]
-    logger.info("%d marches a sonder", len(marches))
+    # LE MEME MARCHE REVIENT SUR DEUX PAGES. Le tri se fait sur `volume24hr`,
+    # qui bouge PENDANT la pagination : un marche qui gagne du volume recule
+    # d'une page et se fait relire. Mesure du 2026-08-26 : 36 doublons sur 799
+    # lignes, soit 763 marches distincts annonces comme 800. Un chiffre publie
+    # ne vaut que s'il compte des choses distinctes.
+    vus = set()
+    uniques = []
+    for m in marches:
+        cle = m.get("conditionId") or m.get("slug")
+        if cle in vus:
+            continue
+        vus.add(cle)
+        uniques.append(m)
+    doublons = len(marches) - len(uniques)
+    marches = uniques[:nb_marches]
+    logger.info("%d marches a sonder (%d doublons ecartes)", len(marches), doublons)
 
     lignes = []
     for i, m in enumerate(marches):
@@ -233,6 +248,11 @@ def page(lignes: list[dict], style: str) -> str:
             f"<td class='num'>{l['ecart_pct']:.1f}%</td>"
             f"<td class='num'>{l['prof_bid']:.0f} / {l['prof_ask']:.0f}</td>"
             f"<td class='num'>${l['ticket_min']:.2f}</td>"
+            # LE CHIFFRE QUE PERSONNE D'AUTRE NE PEUT PRODUIRE. Il faut avoir
+            # mesure les verdicts jour apres jour ; il ne se reconstitue pas
+            # retroactivement. « mort depuis 6 releves » vaut plus qu'un
+            # instantane : un carnet mort depuis une semaine ne se reveille pas.
+            f"<td class='num'>{l.get('persistance', 1)}</td>"
             f"<td class='verdict'><b>{l['verdict']}</b><br><span>{e(l['phrase'])}</span></td>"
             f"</tr>"
         )
@@ -272,7 +292,7 @@ def page(lignes: list[dict], style: str) -> str:
     <h2>Every book, worst-case first</h2>
     <p class="sub">Sorted so the tradable ones come first and the traps are impossible to miss. Depth is shares at the best bid / best ask. Ticket is what the minimum order size actually costs you at the current bid &mdash; commit less than twice that and a partial fill can leave you holding something you cannot sell.</p>
     <div class="scroller"><table>
-      <tr><th class="l">Market</th><th>24h volume</th><th>Spread</th><th>Depth bid / ask</th><th>Min ticket</th><th>Verdict</th></tr>
+      <tr><th class="l">Market</th><th>24h volume</th><th>Spread</th><th>Depth bid / ask</th><th>Min ticket</th><th>Runs</th><th>Verdict</th></tr>
       {rangs}
     </table></div>
   </section>
@@ -299,6 +319,19 @@ def main() -> int:
     if not lignes:
         print("aucun carnet lu -- rien n'est ecrit.")
         return 1
+
+    # L'HISTORIQUE SE LIT AVANT D'ECRIRE LE RELEVE DU JOUR. `persistance()`
+    # compte deja le releve courant pour un ; si le fichier d'aujourd'hui etait
+    # deja charge, un second passage dans la journee le compterait deux fois.
+    aujourdhui = datetime.now(timezone.utc).strftime("%Y-%m-%d")
+    series = charger_historique()
+    for ligne in lignes:
+        passe = [(j, c) for j, c in series.get(ligne["slug"], []) if j != aujourdhui]
+        ligne["persistance"] = persistance(passe, ligne["verdict"])
+
+    os.makedirs(HISTORIQUE, exist_ok=True)
+    with open(f"{HISTORIQUE}/{aujourdhui}.json", "w", encoding="utf-8", newline="\n") as f:
+        json.dump({l["slug"]: l["verdict"] for l in lignes}, f, ensure_ascii=False)
 
     with open("docs/_template.html", encoding="utf-8") as f:
         style = f.read().split("<style>", 1)[1].split("</style>")[0]
