@@ -63,6 +63,7 @@ const etat = {
   sante: new Map(),
   lignes: [],
   client: null,
+  builder: null,
   adresse: null,
   marche: null,
   minuteur: null,
@@ -260,9 +261,30 @@ async function connecter() {
     // derive le Deposit Wallet standard.
     const proxy = ($('proxy')?.value || '').trim();
     dire('Signature demandee pour deriver les identifiants CLOB…');
-    etat.client = await createSecureClient({
+
+    // DEUX CLIENTS, ET C'EST LE COEUR DE L'AFFAIRE.
+    //
+    // `apiKey: remoteBuilderSigning(...)` ne change pas seulement la signature
+    // des ORDRES : il fait partir TOUTE requete authentifiee avec les en-tetes
+    // builder. Le CLOB scope alors `/data/orders` sur LE BUILDER, qui n'a aucun
+    // ordre ouvert -- et rend une liste vide, sans erreur. Mesure du
+    // 2026-08-26 : le CLI voyait quatre ordres, la page zero, sur le meme
+    // compte et le meme point d'acces.
+    //
+    // `listPositions` et `/balance-allowance` marchaient malgre tout parce
+    // qu'ils sont scopes par ADRESSE de portefeuille, pas par identite
+    // authentifiee. C'est ce qui rendait le defaut si trompeur.
+    //
+    // On separe donc les roles : le client UTILISATEUR lit le compte avec les
+    // identifiants derives de sa propre cle ; le client BUILDER ne sert qu'a
+    // poser les ordres, ou l'attribution est justement ce qu'on veut.
+    const commun = {
       signer: signerFrom(walletClient),
       ...(proxy ? { wallet: proxy } : {}),
+    };
+    etat.client = await createSecureClient(commun);
+    etat.builder = await createSecureClient({
+      ...commun,
       apiKey: remoteBuilderSigning({
         url: etat.config.signeur,
         ...(etat.config.jeton ? { headers: { Authorization: `Bearer ${etat.config.jeton}` } } : {}),
@@ -500,7 +522,7 @@ async function poser() {
 
   dire(`Envoi : ${cote} ${parts} @ ${prix} (${fmt(parts * prix)} $)…`);
   try {
-    const reponse = await etat.client.placeLimitOrder({
+    const reponse = await (etat.builder || etat.client).placeLimitOrder({
       tokenId: m.tokens[m.issue],
       price: prix,
       size: parts,
