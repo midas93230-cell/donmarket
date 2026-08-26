@@ -90,44 +90,91 @@ async function buildSignature(secret, timestamp, method, path, body) {
   return bytesToBase64Url(digest);
 }
 
-function refuse(status, message) {
+/**
+ * Origines autorisées à appeler ce signeur depuis un NAVIGATEUR.
+ *
+ * Sans ces en-têtes, une page web ne peut pas nous appeler du tout : le
+ * navigateur bloque la réponse avant que le code de la page ne la voie. Le CLOB
+ * Polymarket, lui, répond `Access-Control-Allow-Origin: *` — c'est ce qui rend
+ * une application entièrement statique possible.
+ *
+ * On garde une LISTE plutôt que `*` : le jeton d'un client navigateur est
+ * forcément public (il est dans la source de la page), donc la seule barrière
+ * restante est l'origine. Un attaquant ne pourrait de toute façon rien nous
+ * voler — les en-têtes obtenus attribuent le volume À NOUS — mais il pourrait
+ * épuiser le quota du Worker.
+ */
+const ORIGINES_AUTORISEES = new Set([
+  "https://midas93230-cell.github.io",
+  "http://localhost:8000",
+  "http://127.0.0.1:8000",
+]);
+
+function corsHeaders(request) {
+  const origin = request.headers.get("Origin") || "";
+  if (!ORIGINES_AUTORISEES.has(origin)) return {};
+  return {
+    "access-control-allow-origin": origin,
+    "access-control-allow-methods": "POST, OPTIONS",
+    "access-control-allow-headers": "authorization, content-type",
+    "access-control-max-age": "86400",
+    // L'origine varie la réponse : sans `Vary`, un cache pourrait servir
+    // l'en-tête d'une origine à une autre.
+    vary: "Origin",
+  };
+}
+
+function refuse(status, message, request) {
   // Le message reste générique : dire « jeton invalide » plutôt que « absent »
   // renseignerait un visiteur sur ce qu'il doit corriger pour s'approcher.
   return new Response(JSON.stringify({ error: message }), {
     status,
-    headers: { "content-type": "application/json" },
+    headers: {
+      "content-type": "application/json",
+      // Un refus SANS CORS s'affiche dans le navigateur comme une panne réseau
+      // opaque : la page ne voit ni le code ni le message. Le client passerait
+      // des heures à chercher une erreur de réseau là où il y a un 401.
+      ...(request ? corsHeaders(request) : {}),
+    },
   });
 }
 
 export default {
   async fetch(request, env) {
-    if (request.method !== "POST") return refuse(405, "POST attendu");
+    // Le navigateur envoie un OPTIONS avant tout POST cross-origin. Y répondre
+    // 405 fait échouer la requête réelle avant qu'elle ne parte.
+    if (request.method === "OPTIONS") {
+      const entetes = corsHeaders(request);
+      if (!Object.keys(entetes).length) return refuse(403, "origine non autorisée", request);
+      return new Response(null, { status: 204, headers: entetes });
+    }
+    if (request.method !== "POST") return refuse(405, "POST attendu", request);
 
     const expected = env.AUTH_TOKEN;
     if (expected) {
       const header = request.headers.get("Authorization") || "";
       const prefix = "Bearer ";
       const presented = header.startsWith(prefix) ? header.slice(prefix.length) : "";
-      if (!tokensMatch(presented, expected)) return refuse(401, "non autorisé");
+      if (!tokensMatch(presented, expected)) return refuse(401, "non autorisé", request);
     }
 
     if (!env.BUILDER_API_SECRET || !env.BUILDER_API_KEY || !env.BUILDER_API_PASSPHRASE) {
       // Renvoyer 200 avec des en-têtes creux serait pire que refuser : le client
       // enverrait l'ordre avec une signature fausse et le CLOB le rejetterait,
       // très loin de la cause.
-      return refuse(503, "signeur non configuré");
+      return refuse(503, "signeur non configuré", request);
     }
 
     let payload;
     try {
       payload = await request.json();
     } catch {
-      return refuse(400, "corps JSON illisible");
+      return refuse(400, "corps JSON illisible", request);
     }
 
     const method = payload && payload.method;
     const path = payload && payload.path;
-    if (!method || !path) return refuse(400, "`method` et `path` sont requis");
+    if (!method || !path) return refuse(400, "`method` et `path` sont requis", request);
 
     // Le client py-clob-client n'envoie PAS de timestamp : le signataire local
     // le fabrique lui-même, donc le signataire distant doit le faire aussi — et
@@ -156,9 +203,13 @@ export default {
     // promesse « je ne garde rien » ne vaut que si le code la tient.
     return new Response(JSON.stringify(headers), {
       status: 200,
-      headers: { "content-type": "application/json", "cache-control": "no-store" },
+      headers: {
+        "content-type": "application/json",
+        "cache-control": "no-store",
+        ...corsHeaders(request),
+      },
     });
   },
 };
 
-export const _internals = { buildSignature, bytesToBase64Url, base64UrlToBytes, HEADER_FIELDS };
+export const _internals = { corsHeaders, ORIGINES_AUTORISEES, buildSignature, bytesToBase64Url, base64UrlToBytes, HEADER_FIELDS };
