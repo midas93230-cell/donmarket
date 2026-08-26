@@ -3,10 +3,10 @@
   <head>
     <meta charset="utf-8" />
     <meta name="viewport" content="width=device-width, initial-scale=1" />
-    <title>DONmarket — poser un ordre</title>
+    <title>DONmarket — trader Polymarket</title>
     <meta
       name="description"
-      content="Passer un ordre Polymarket depuis le navigateur, avec les garde-fous qui refusent les carnets morts et les tailles invendables."
+      content="Trader sur Polymarket depuis le navigateur, avec les garde-fous qui refusent les carnets morts, les tailles invendables et les ordres hors marché."
     />
     <style>
       :root {
@@ -20,9 +20,7 @@
         --laiton: #d4a24c;
         --alarme: #e05c4b;
       }
-      * {
-        box-sizing: border-box;
-      }
+      * { box-sizing: border-box; }
       body {
         margin: 0;
         background: var(--fond);
@@ -30,176 +28,155 @@
         font: 15px/1.6 ui-sans-serif, system-ui, -apple-system, "Segoe UI", sans-serif;
         padding: 2rem 1.25rem 4rem;
       }
-      main {
-        max-width: 62rem;
-        margin: 0 auto;
-      }
-      h1 {
-        font-size: 1.6rem;
-        margin: 0 0 0.25rem;
-        letter-spacing: -0.01em;
-      }
-      .sous {
-        color: var(--encre-2);
-        margin: 0 0 2rem;
-        max-width: 46rem;
-      }
+      main { max-width: 74rem; margin: 0 auto; }
+      h1 { font-size: 1.6rem; margin: 0 0 0.25rem; letter-spacing: -0.01em; }
+      .sous { color: var(--encre-2); margin: 0 0 0.6rem; max-width: 48rem; }
+      #mesure { color: var(--teal); font-size: 0.85rem; margin: 0 0 2rem; }
+      .grille { display: grid; gap: 1.1rem; grid-template-columns: 1fr; }
+      @media (min-width: 62rem) { .grille.deux { grid-template-columns: 1fr 1fr; } }
       .carte {
-        background: var(--carte);
-        border: 1px solid var(--bord);
-        border-radius: 10px;
-        padding: 1.1rem 1.25rem;
-        margin-bottom: 1.1rem;
+        background: var(--carte); border: 1px solid var(--bord);
+        border-radius: 10px; padding: 1.1rem 1.25rem; margin-bottom: 1.1rem;
       }
       h2 {
-        font-size: 0.78rem;
-        text-transform: uppercase;
-        letter-spacing: 0.09em;
-        color: var(--encre-3);
-        margin: 0 0 0.85rem;
+        font-size: 0.78rem; text-transform: uppercase; letter-spacing: 0.09em;
+        color: var(--encre-3); margin: 0 0 0.85rem;
+        display: flex; justify-content: space-between; align-items: center; gap: 1rem;
       }
-      label {
-        display: block;
-        font-size: 0.8rem;
-        color: var(--encre-2);
-        margin-bottom: 0.25rem;
+      label { display: block; font-size: 0.8rem; color: var(--encre-2); margin-bottom: 0.25rem; }
+      input, select, button {
+        font: inherit; color: var(--encre); background: #221e1a;
+        border: 1px solid var(--bord); border-radius: 7px;
+        padding: 0.5rem 0.65rem; width: 100%;
       }
-      input,
-      select,
-      button {
-        font: inherit;
-        color: var(--encre);
-        background: #221e1a;
-        border: 1px solid var(--bord);
-        border-radius: 7px;
-        padding: 0.5rem 0.65rem;
-        width: 100%;
-      }
-      button {
-        cursor: pointer;
-        background: #2a2521;
-        font-weight: 600;
-      }
-      button:hover:not(:disabled) {
-        border-color: var(--teal);
-      }
-      button:disabled {
-        opacity: 0.45;
-        cursor: default;
-      }
+      button { cursor: pointer; background: #2a2521; font-weight: 600; }
+      button:hover:not(:disabled) { border-color: var(--teal); }
+      button:disabled { opacity: 0.45; cursor: default; }
+      button.mini { width: auto; padding: 0.25rem 0.6rem; font-size: 0.78rem; font-weight: 500; }
+      button.mini.danger:hover { border-color: var(--alarme); color: var(--alarme); }
       .rangee {
-        display: grid;
-        gap: 0.8rem;
-        grid-template-columns: repeat(auto-fit, minmax(9rem, 1fr));
-        align-items: end;
+        display: grid; gap: 0.8rem;
+        grid-template-columns: repeat(auto-fit, minmax(8.5rem, 1fr)); align-items: end;
       }
       pre {
-        background: #171310;
-        border: 1px solid var(--bord);
-        border-radius: 7px;
-        padding: 0.8rem;
-        overflow-x: auto;
-        font-size: 0.84rem;
-        color: var(--encre-2);
-        margin: 0.8rem 0 0;
-        white-space: pre-wrap;
+        background: #171310; border: 1px solid var(--bord); border-radius: 7px;
+        padding: 0.8rem; overflow-x: auto; font-size: 0.84rem;
+        color: var(--encre-2); margin: 0.8rem 0 0; white-space: pre-wrap;
       }
+      .tableau { overflow-x: auto; }
+      table { width: 100%; border-collapse: collapse; font-size: 0.85rem; }
+      th {
+        text-align: right; font-weight: 500; color: var(--encre-3);
+        font-size: 0.72rem; text-transform: uppercase; letter-spacing: 0.06em;
+        padding: 0 0.5rem 0.5rem; border-bottom: 1px solid var(--bord);
+      }
+      th:first-child, td.l { text-align: left; }
+      td { padding: 0.45rem 0.5rem; border-bottom: 1px solid #241f1b; color: var(--encre-2); }
+      td.num { text-align: right; font-variant-numeric: tabular-nums; }
+      td.vide { text-align: center; color: var(--encre-3); padding: 1.2rem; }
+      td.gain { color: var(--teal); }
+      td.perte { color: var(--alarme); }
+      tbody tr:hover td { background: #201c18; }
       .pastille {
-        display: inline-block;
-        font-size: 0.72rem;
-        text-transform: uppercase;
-        letter-spacing: 0.07em;
-        padding: 0.15rem 0.55rem;
-        border-radius: 999px;
-        border: 1px solid var(--bord);
-        color: var(--encre-3);
+        display: inline-block; font-size: 0.7rem; text-transform: uppercase;
+        letter-spacing: 0.06em; padding: 0.1rem 0.5rem; border-radius: 999px;
+        border: 1px solid var(--bord); color: var(--encre-3);
       }
-      .pastille.tradable {
-        color: var(--teal);
-        border-color: var(--teal);
-      }
-      .pastille.efficient {
-        color: var(--encre);
-      }
-      .pastille.piege {
-        color: var(--laiton);
-        border-color: var(--laiton);
-      }
-      .pastille.mort,
-      .pastille.desequilibre {
-        color: var(--alarme);
-        border-color: var(--alarme);
-      }
-      #journal {
-        max-height: 19rem;
-        overflow-y: auto;
-        font-size: 0.85rem;
-      }
-      .ligne {
-        padding: 0.35rem 0;
-        border-bottom: 1px solid #241f1b;
-        color: var(--encre-2);
-      }
-      .ligne.ok {
-        color: var(--teal);
-      }
-      .ligne.erreur {
-        color: var(--alarme);
-      }
-      .note {
-        font-size: 0.84rem;
-        color: var(--encre-3);
-      }
-      ul {
-        margin: 0.4rem 0 0;
-        padding-left: 1.1rem;
-      }
-      li {
-        margin-bottom: 0.3rem;
-        color: var(--encre-2);
-        font-size: 0.88rem;
-      }
-      code {
-        background: #221e1a;
-        padding: 0.1rem 0.3rem;
-        border-radius: 4px;
-        font-size: 0.85em;
-      }
+      .pastille.tradable { color: var(--teal); border-color: var(--teal); }
+      .pastille.efficient { color: var(--encre); }
+      .pastille.piege { color: var(--laiton); border-color: var(--laiton); }
+      .pastille.mort, .pastille.desequilibre { color: var(--alarme); border-color: var(--alarme); }
+      #journal { max-height: 16rem; overflow-y: auto; font-size: 0.85rem; }
+      .ligne { padding: 0.35rem 0; border-bottom: 1px solid #241f1b; color: var(--encre-2); }
+      .ligne.ok { color: var(--teal); }
+      .ligne.erreur { color: var(--alarme); }
+      .note { font-size: 0.8rem; color: var(--encre-3); }
+      .chiffre { font-size: 1.5rem; font-variant-numeric: tabular-nums; }
+      ul { margin: 0.4rem 0 0; padding-left: 1.1rem; }
+      li { margin-bottom: 0.35rem; color: var(--encre-2); font-size: 0.87rem; }
+      code { background: #221e1a; padding: 0.1rem 0.3rem; border-radius: 4px; font-size: 0.85em; }
     </style>
   </head>
   <body>
     <main>
-      <h1>DONmarket — poser un ordre</h1>
+      <h1>DONmarket</h1>
       <p class="sous">
-        Une interface Polymarket qui <strong>refuse des ordres</strong>. Avant
-        d'envoyer, elle confronte l'ordre au carnet réel et bloque les quatre
-        pièges qui coûtent de l'argent : le carnet mort, la taille invendable, la
-        vente hors marché, et l'ordre qui traverse l'écart. Votre clé privée reste
-        dans votre portefeuille&nbsp;; elle ne nous est jamais transmise.
+        Trader sur Polymarket depuis le navigateur. La clé privée reste dans
+        votre portefeuille&nbsp;; elle ne nous est jamais transmise. Ce que cette
+        interface fait de particulier&nbsp;: elle <strong>refuse des ordres</strong>,
+        et elle dit pourquoi.
       </p>
+      <p id="mesure">chargement des mesures…</p>
 
       <section class="carte">
-        <h2>1 · Portefeuille</h2>
+        <h2>
+          <span>Portefeuille</span>
+          <button id="rafraichir" class="mini">Rafraîchir</button>
+        </h2>
         <div class="rangee">
-          <div><button id="connecter">Connecter</button></div>
+          <div><button id="connecter">Connecter le portefeuille</button></div>
           <div>
             <label>Adresse</label>
             <div id="adresse" class="note">non connecté</div>
           </div>
+          <div>
+            <label>Disponible</label>
+            <div id="solde" class="chiffre">—</div>
+          </div>
         </div>
       </section>
 
+      <div class="grille deux">
+        <section class="carte">
+          <h2>Positions</h2>
+          <div class="tableau">
+            <table>
+              <thead>
+                <tr><th>Marché</th><th>Parts</th><th>Prix moyen</th><th>P&amp;L</th><th></th></tr>
+              </thead>
+              <tbody id="positions">
+                <tr><td colspan="5" class="vide">connectez un portefeuille</td></tr>
+              </tbody>
+            </table>
+          </div>
+        </section>
+
+        <section class="carte">
+          <h2>Ordres au carnet</h2>
+          <div class="tableau">
+            <table>
+              <thead>
+                <tr><th>Côté</th><th>Parts</th><th>Prix</th><th>Rempli</th><th></th></tr>
+              </thead>
+              <tbody id="ordres">
+                <tr><td colspan="5" class="vide">connectez un portefeuille</td></tr>
+              </tbody>
+            </table>
+          </div>
+        </section>
+      </div>
+
       <section class="carte">
-        <h2>2 · Marché</h2>
+        <h2><span>Marchés mesurés</span><span class="note">cliquez une ligne pour la charger</span></h2>
+        <input id="filtre" placeholder="filtrer : bitcoin, iran, premier league…" />
+        <div class="tableau" style="margin-top: 0.8rem; max-height: 22rem; overflow-y: auto">
+          <table>
+            <thead>
+              <tr><th>Marché</th><th>Volume 24 h</th><th>Bid / Ask</th><th>Relevés</th><th>Verdict</th></tr>
+            </thead>
+            <tbody id="marches">
+              <tr><td colspan="5" class="vide">chargement…</td></tr>
+            </tbody>
+          </table>
+        </div>
+      </section>
+
+      <section class="carte" id="ticket">
+        <h2><span>Ordre</span><span id="vif" class="note"></span></h2>
         <div class="rangee">
           <div style="grid-column: span 2">
             <label for="slug">Slug du marché</label>
-            <input
-              id="slug"
-              list="suggestions"
-              placeholder="will-russia-invade-another-country-in-2026"
-            />
-            <datalist id="suggestions"></datalist>
+            <input id="slug" placeholder="will-russia-invade-another-country-in-2026" />
           </div>
           <div>
             <label for="issue">Issue</label>
@@ -212,11 +189,8 @@
         </div>
         <pre id="carnet">Aucun marché chargé.</pre>
         <p style="margin: 0.7rem 0 0"><span id="verdict" class="pastille">—</span></p>
-      </section>
 
-      <section class="carte">
-        <h2>3 · Ordre</h2>
-        <div class="rangee">
+        <div class="rangee" style="margin-top: 1rem">
           <div>
             <label for="cote">Côté</label>
             <select id="cote">
@@ -230,13 +204,13 @@
           </div>
           <div>
             <label for="parts">Parts</label>
-            <input id="parts" type="number" step="1" min="0" placeholder="25" />
+            <input id="parts" type="number" step="1" min="0" placeholder="10" />
           </div>
           <div><button id="poser">Poser l'ordre</button></div>
         </div>
         <p class="note" style="margin-top: 0.8rem">
-          L'ordre part en <code>post-only</code> : il est refusé plutôt que de
-          traverser l'écart et de payer les frais de preneur.
+          L'ordre part en <code>post-only</code>&nbsp;: il est refusé plutôt que
+          de traverser l'écart et de payer les frais de preneur.
         </p>
       </section>
 
@@ -251,23 +225,36 @@
           <li>
             <strong>Carnet « mort » ou « piège »</strong> — un écart large sur un
             marché sans volume paie sur le papier et ne se remplit jamais. Mesuré
-            le 26 août 2026 sur 800 carnets : là où il y a du volume, l'écart vaut
-            exactement un tick.
+            le 26 août 2026 sur 789 carnets&nbsp;: là où il y a du volume, l'écart
+            vaut exactement un tick. Un écart plus large signale l'absence de
+            contrepartie, pas une occasion.
           </li>
           <li>
             <strong>Taille au minimum exact</strong> — un remplissage partiel
-            laisse un reliquat sous le minimum d'ordre, donc invendable. Il faut
-            engager au moins deux fois <code>orderMinSize</code>.
+            laisse un reliquat sous le minimum d'ordre, donc invendable. Ce piège
+            a coûté deux fois&nbsp;: à l'achat, puis à la vente, où il est resté
+            1,74&nbsp;part sous un minimum de 5.
           </li>
           <li>
-            <strong>Vente au-dessus du meilleur ask</strong> — hors marché, elle ne
-            peut pas se remplir, quel que soit le temps qu'elle attend.
+            <strong>Vente au-dessus du meilleur ask</strong> — hors marché, elle
+            ne peut pas se remplir, quel que soit le temps qu'elle attend.
           </li>
           <li>
             <strong>Ordre qui traverse l'écart</strong> — vous devenez preneur et
             payez les frais qu'un teneur évite.
           </li>
+          <li>
+            <strong>Annulation qui piège un reliquat</strong> — annuler une vente
+            partiellement remplie peut laisser moins que le minimum d'ordre. La
+            page le dit avant, pas après.
+          </li>
         </ul>
+        <p class="note" style="margin-top: 0.9rem">
+          La colonne <strong>Relevés</strong> indique depuis combien de mesures
+          quotidiennes un marché porte le même verdict. Ce chiffre ne se
+          reconstitue pas rétroactivement&nbsp;: il faut avoir mesuré jour après
+          jour.
+        </p>
       </section>
     </main>
     <script type="module" src="./app.js"></script>

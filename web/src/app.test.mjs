@@ -4,7 +4,7 @@
  * Chaque cas ici correspond a une perte reelle datee. Ce ne sont pas des
  * hypotheses : ce sont les facons dont on a deja perdu de l'argent.
  */
-import { verifier, carnet, MULTIPLE_MINIMUM } from './app.js';
+import { verifier, carnet, vendable, MULTIPLE_MINIMUM } from './app.js';
 
 let echecs = 0;
 const verifie = (nom, condition) => {
@@ -102,6 +102,31 @@ verifie('carnet vide -> bid et ask nuls, sans exception', vide.bid === null && v
 verifie(
   'sans ask connu, un achat reste jugeable sur les autres regles',
   verifier(base({ carnet: { bid: null, ask: null, bidTaille: 0, askTaille: 0 } })).length === 0,
+);
+
+// --- LE PIEGE PAYE DEUX FOIS : le reliquat sous le minimum ---------------
+// 2026-08-24 a l'ACHAT (2,15 $ bloques), 2026-08-26 a la VENTE (1,74 part
+// restee sous un minimum de 5, definitivement invendable).
+verifie(
+  'refuse de vendre 1,74 part quand le minimum est 5',
+  vendable(1.74, 5).refus?.includes('INVENDABLE'),
+);
+verifie('le refus nomme la seule issue', vendable(1.74, 5).refus?.includes('completer'));
+verifie('refuse une position vide', vendable(0, 5).max === 0);
+verifie('refuse une taille non numerique', vendable(Number.NaN, 5).max === 0);
+verifie('autorise une position de 25 parts', vendable(25, 5).max === 25 && !vendable(25, 5).refus);
+verifie(
+  'avertit quand la position est sous deux fois le minimum',
+  vendable(7, 5).avertissement?.includes('invendables'),
+);
+verifie("n'avertit pas au-dela de deux fois le minimum", vendable(25, 5).avertissement === null);
+verifie('accepte exactement le minimum, en avertissant', vendable(5, 5).max === 5);
+
+// --- La persistance apparait dans le motif de refus ----------------------
+verifie(
+  'un carnet mort depuis 6 releves le dit',
+  verifier(base({ verdict: { verdict: 'mort', phrase: 'aucune contrepartie', persistance: 6 } }))
+    .some((r) => r.includes('depuis 6 releves')),
 );
 
 console.log(echecs ? `\n${echecs} verification(s) en echec` : '\ntoutes les verifications passent');
