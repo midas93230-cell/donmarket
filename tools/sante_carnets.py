@@ -340,6 +340,22 @@ def main() -> int:
     with open("docs/health.json", "w", encoding="utf-8", newline="\n") as f:
         json.dump(lignes, f, indent=1, ensure_ascii=False)
 
+    # LA DATE DE MESURE, PAS CELLE DE LECTURE. La page affichait la date du jour
+    # où on l'ouvrait : le 27 août, elle datait du 27 des chiffres relevés le 26.
+    # Sur une page dont toute la crédibilité tient à la mesure, se tromper d'un
+    # jour suffit à la perdre. La source de vérité est ici, pas dans le
+    # navigateur.
+    with open("docs/health-meta.json", "w", encoding="utf-8", newline="\n") as f:
+        json.dump(
+            {
+                "mesure": datetime.now(timezone.utc).isoformat(timespec="seconds"),
+                "carnets": len(lignes),
+                "duree_s": round(time.monotonic() - debut),
+            },
+            f,
+            ensure_ascii=False,
+        )
+
     compte = {}
     for l in lignes:
         compte[l["verdict"]] = compte.get(l["verdict"], 0) + 1

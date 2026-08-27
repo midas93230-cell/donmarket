@@ -14,14 +14,16 @@
       est la seconde barrière : même si un `innerHTML` réapparaissait un jour,
       un script injecté ne pourrait ni s'exécuter (`script-src 'self'`) ni
       exfiltrer quoi que ce soit (`connect-src` limité aux hôtes réellement
-      appelés). `object-src 'none'` et `base-uri 'none'` ferment deux
-      contournements classiques ; `form-action 'none'` interdit d'exfiltrer par
-      soumission de formulaire.
+      appelés). `object-src`, `base-uri` et `form-action` à 'none' ferment trois
+      contournements classiques.
 
       GitHub Pages ne permet pas d'envoyer d'en-têtes : la balise `meta` est le
       seul véhicule disponible. Elle couvre tout sauf `frame-ancestors`, qui
-      exige un vrai en-tête — le clickjacking reste donc à couvrir si cette
-      page passe un jour derrière un hébergeur qui les autorise.
+      exige un vrai en-tête — le clickjacking reste donc à couvrir si cette page
+      passe un jour derrière un hébergeur qui les autorise.
+
+      Aucune police distante n'est chargée : cela éviterait d'élargir `font-src`
+      et supprime une dépendance réseau au rendu.
     -->
     <meta
       http-equiv="Content-Security-Policy"
@@ -41,110 +43,480 @@
                form-action 'none';
                frame-src 'none'"
     />
-    <title>DONmarket — trader Polymarket</title>
+    <title>DONmarket — l'interface qui refuse vos ordres</title>
     <meta
       name="description"
-      content="Trader sur Polymarket depuis le navigateur, avec les garde-fous qui refusent les carnets morts, les tailles invendables et les ordres hors marché."
+      content="789 carnets Polymarket mesurés chaque jour. Une interface de trading qui refuse les carnets morts, les tailles invendables et les ordres hors marché — et qui dit pourquoi."
     />
     <style>
+      /*
+        PALETTE DES VERDICTS — validée, pas choisie à l'œil.
+        `scripts/validate_palette.js "#199e70,#3987e5,#e66767" --mode dark
+        --pairs all` : bande de luminosité, plancher de chroma, séparation
+        daltonienne, plancher de vision normale et contraste, tous PASS.
+
+        Une première tentative à QUATRE couleurs échouait le plancher de vision
+        normale sur la paire rouge/jaune (ΔE 13,0 < 15) : deux catégories que
+        même un œil normal confond. Plutôt que forcer une teinte, on a fusionné
+        « déséquilibré », « piège » et « mort » en une seule catégorie — « à
+        éviter » — qui dit la même chose à l'utilisateur avec moins d'ambiguïté.
+
+        La séparation daltonienne reste dans la bande 6-8 (ΔE 6,5 protan), ce
+        qui n'est admis QU'AVEC un encodage secondaire : chaque segment porte
+        donc son nom et son compte en clair, et les segments sont séparés par
+        2 px de surface.
+      */
       :root {
-        --fond: #12100e;
-        --carte: #1b1815;
-        --bord: #2e2924;
-        --encre: #efe9e0;
-        --encre-2: #a89e91;
-        --encre-3: #6f665c;
-        --teal: #4ec9b0;
-        --laiton: #d4a24c;
-        --alarme: #e05c4b;
+        --fond: #0d0d0c;
+        --surface: #161614;
+        --surface-2: #1e1d1a;
+        --bord: #2b2925;
+        --bord-vif: #3d3a34;
+        --encre: #f4f1ea;
+        --encre-2: #a8a294;
+        --encre-3: #6b665c;
+
+        --vivant: #199e70;
+        --serre: #3987e5;
+        --eviter: #e66767;
+
+        --pas: 0.25rem;
+        --rayon: 12px;
       }
-      * { box-sizing: border-box; }
+      * {
+        box-sizing: border-box;
+      }
+      html {
+        -webkit-text-size-adjust: 100%;
+      }
       body {
         margin: 0;
         background: var(--fond);
         color: var(--encre);
-        font: 15px/1.6 ui-sans-serif, system-ui, -apple-system, "Segoe UI", sans-serif;
-        padding: 2rem 1.25rem 4rem;
+        font:
+          15px/1.6 ui-sans-serif,
+          system-ui,
+          -apple-system,
+          "Segoe UI",
+          sans-serif;
+        padding: clamp(1.5rem, 1rem + 2vw, 3.5rem) clamp(1rem, 0.5rem + 2vw, 2rem) 5rem;
       }
-      main { max-width: 74rem; margin: 0 auto; }
-      h1 { font-size: 1.6rem; margin: 0 0 0.25rem; letter-spacing: -0.01em; }
-      .sous { color: var(--encre-2); margin: 0 0 0.6rem; max-width: 48rem; }
-      #mesure { color: var(--teal); font-size: 0.85rem; margin: 0 0 2rem; }
-      .grille { display: grid; gap: 1.1rem; grid-template-columns: 1fr; }
-      @media (min-width: 62rem) { .grille.deux { grid-template-columns: 1fr 1fr; } }
+      main {
+        max-width: 78rem;
+        margin: 0 auto;
+      }
+      /* Les chiffres sont le fond du sujet : ils portent une fonte tabulaire
+         pour que les colonnes s'alignent et que rien ne saute d'une ligne à
+         l'autre pendant un rafraîchissement. */
+      .n {
+        font-family: ui-monospace, "SF Mono", "Cascadia Mono", Menlo, monospace;
+        font-variant-numeric: tabular-nums;
+        letter-spacing: -0.01em;
+      }
+
+      /* ---------------------------------------------------------- en-tête */
+      .bandeau {
+        display: flex;
+        flex-wrap: wrap;
+        align-items: baseline;
+        gap: 0.75rem 1.25rem;
+        margin-bottom: 2.5rem;
+      }
+      .marque {
+        font-size: clamp(1.5rem, 1.2rem + 1.2vw, 2rem);
+        font-weight: 680;
+        letter-spacing: -0.03em;
+        margin: 0;
+      }
+      .marque span {
+        color: var(--encre-3);
+        font-weight: 400;
+      }
+      .accroche {
+        color: var(--encre-2);
+        max-width: 42rem;
+        margin: 0;
+      }
+
+      /* ------------------------------------------------------------ héros */
+      .heros {
+        border: 1px solid var(--bord);
+        border-radius: var(--rayon);
+        background:
+          radial-gradient(120% 140% at 0% 0%, #1c1b18 0%, var(--surface) 55%);
+        padding: clamp(1.25rem, 1rem + 1.5vw, 2.25rem);
+        margin-bottom: 1.25rem;
+      }
+      .constat {
+        font-size: clamp(1.35rem, 1.05rem + 1.5vw, 2.1rem);
+        line-height: 1.25;
+        letter-spacing: -0.025em;
+        font-weight: 620;
+        margin: 0 0 0.6rem;
+        max-width: 34ch;
+      }
+      .constat em {
+        font-style: normal;
+        color: var(--vivant);
+      }
+      .source {
+        color: var(--encre-3);
+        font-size: 0.85rem;
+        margin: 0 0 1.6rem;
+      }
+
+      /* Bande de composition : un seul rang, chaque segment étiqueté.
+         2 px de surface entre les remplissages, comme spécifié. */
+      .bande {
+        display: flex;
+        gap: 2px;
+        height: 10px;
+        margin-bottom: 0.9rem;
+      }
+      .bande i {
+        display: block;
+        border-radius: 3px;
+        min-width: 3px;
+      }
+      .legende {
+        display: flex;
+        flex-wrap: wrap;
+        gap: 0.4rem 1.6rem;
+        margin: 0;
+        padding: 0;
+        list-style: none;
+      }
+      .legende li {
+        display: flex;
+        align-items: baseline;
+        gap: 0.5rem;
+        font-size: 0.86rem;
+        color: var(--encre-2);
+      }
+      .puce {
+        width: 9px;
+        height: 9px;
+        border-radius: 2px;
+        flex: none;
+        transform: translateY(-1px);
+      }
+      .legende b {
+        color: var(--encre);
+        font-weight: 620;
+      }
+
+      /* ----------------------------------------------------------- cartes */
+      .grille {
+        display: grid;
+        gap: 1.25rem;
+        grid-template-columns: 1fr;
+        margin-bottom: 1.25rem;
+      }
+      @media (min-width: 60rem) {
+        .grille.deux {
+          grid-template-columns: 1fr 1fr;
+        }
+      }
       .carte {
-        background: var(--carte); border: 1px solid var(--bord);
-        border-radius: 10px; padding: 1.1rem 1.25rem; margin-bottom: 1.1rem;
+        background: var(--surface);
+        border: 1px solid var(--bord);
+        border-radius: var(--rayon);
+        padding: 1.15rem 1.3rem 1.3rem;
       }
       h2 {
-        font-size: 0.78rem; text-transform: uppercase; letter-spacing: 0.09em;
-        color: var(--encre-3); margin: 0 0 0.85rem;
-        display: flex; justify-content: space-between; align-items: center; gap: 1rem;
+        font-size: 0.72rem;
+        text-transform: uppercase;
+        letter-spacing: 0.11em;
+        color: var(--encre-3);
+        font-weight: 600;
+        margin: 0 0 1rem;
+        display: flex;
+        justify-content: space-between;
+        align-items: center;
+        gap: 1rem;
       }
-      label { display: block; font-size: 0.8rem; color: var(--encre-2); margin-bottom: 0.25rem; }
-      input, select, button {
-        font: inherit; color: var(--encre); background: #221e1a;
-        border: 1px solid var(--bord); border-radius: 7px;
-        padding: 0.5rem 0.65rem; width: 100%;
+      h2 .discret {
+        text-transform: none;
+        letter-spacing: 0;
+        font-weight: 400;
       }
-      button { cursor: pointer; background: #2a2521; font-weight: 600; }
-      button:hover:not(:disabled) { border-color: var(--teal); }
-      button:disabled { opacity: 0.45; cursor: default; }
-      button.mini { width: auto; padding: 0.25rem 0.6rem; font-size: 0.78rem; font-weight: 500; }
-      button.mini.danger:hover { border-color: var(--alarme); color: var(--alarme); }
+
+      /* --------------------------------------------------- champs, boutons */
+      label {
+        display: block;
+        font-size: 0.78rem;
+        color: var(--encre-2);
+        margin-bottom: 0.3rem;
+      }
+      input,
+      select,
+      button {
+        font: inherit;
+        color: var(--encre);
+        background: var(--surface-2);
+        border: 1px solid var(--bord);
+        border-radius: 8px;
+        padding: 0.55rem 0.7rem;
+        width: 100%;
+        transition:
+          border-color 120ms ease,
+          background 120ms ease;
+      }
+      input::placeholder {
+        color: var(--encre-3);
+      }
+      input:focus-visible,
+      select:focus-visible,
+      button:focus-visible {
+        outline: 2px solid var(--serre);
+        outline-offset: 2px;
+        border-color: transparent;
+      }
+      input:hover,
+      select:hover {
+        border-color: var(--bord-vif);
+      }
+      button {
+        cursor: pointer;
+        font-weight: 600;
+        background: #262420;
+      }
+      button:hover:not(:disabled) {
+        background: #2f2c27;
+        border-color: var(--bord-vif);
+      }
+      button:active:not(:disabled) {
+        transform: translateY(1px);
+      }
+      button:disabled {
+        opacity: 0.4;
+        cursor: default;
+      }
+      button.principal {
+        background: var(--vivant);
+        border-color: var(--vivant);
+        color: #04150e;
+      }
+      button.principal:hover:not(:disabled) {
+        background: #1cb37e;
+        border-color: #1cb37e;
+      }
+      button.mini {
+        width: auto;
+        padding: 0.28rem 0.65rem;
+        font-size: 0.78rem;
+        font-weight: 500;
+      }
+      button.mini.danger:hover:not(:disabled) {
+        border-color: var(--eviter);
+        color: var(--eviter);
+      }
       .rangee {
-        display: grid; gap: 0.8rem;
-        grid-template-columns: repeat(auto-fit, minmax(8.5rem, 1fr)); align-items: end;
+        display: grid;
+        gap: 0.85rem;
+        grid-template-columns: repeat(auto-fit, minmax(8.5rem, 1fr));
+        align-items: end;
       }
-      pre {
-        background: #171310; border: 1px solid var(--bord); border-radius: 7px;
-        padding: 0.8rem; overflow-x: auto; font-size: 0.84rem;
-        color: var(--encre-2); margin: 0.8rem 0 0; white-space: pre-wrap;
+
+      /* --------------------------------------------------------- tableaux */
+      .tableau {
+        overflow-x: auto;
+        margin: 0 -0.35rem;
+        padding: 0 0.35rem;
       }
-      .tableau { overflow-x: auto; }
-      table { width: 100%; border-collapse: collapse; font-size: 0.85rem; }
+      table {
+        width: 100%;
+        border-collapse: collapse;
+        font-size: 0.86rem;
+      }
       th {
-        text-align: right; font-weight: 500; color: var(--encre-3);
-        font-size: 0.72rem; text-transform: uppercase; letter-spacing: 0.06em;
-        padding: 0 0.5rem 0.5rem; border-bottom: 1px solid var(--bord);
+        text-align: right;
+        font-weight: 500;
+        color: var(--encre-3);
+        font-size: 0.68rem;
+        text-transform: uppercase;
+        letter-spacing: 0.08em;
+        padding: 0 0.55rem 0.6rem;
+        border-bottom: 1px solid var(--bord);
+        white-space: nowrap;
       }
-      th:first-child, td.l { text-align: left; }
-      td { padding: 0.45rem 0.5rem; border-bottom: 1px solid #241f1b; color: var(--encre-2); }
-      td.num { text-align: right; font-variant-numeric: tabular-nums; }
-      td.vide { text-align: center; color: var(--encre-3); padding: 1.2rem; }
-      td.gain { color: var(--teal); }
-      td.perte { color: var(--alarme); }
-      tbody tr:hover td { background: #201c18; }
+      th:first-child,
+      td.l {
+        text-align: left;
+      }
+      td {
+        padding: 0.5rem 0.55rem;
+        border-bottom: 1px solid #211f1c;
+        color: var(--encre-2);
+        vertical-align: top;
+      }
+      td.num {
+        text-align: right;
+        font-family: ui-monospace, "SF Mono", "Cascadia Mono", Menlo, monospace;
+        font-variant-numeric: tabular-nums;
+        color: var(--encre);
+      }
+      td.vide {
+        text-align: center;
+        color: var(--encre-3);
+        padding: 1.5rem;
+      }
+      td.gain {
+        color: var(--vivant);
+      }
+      td.perte {
+        color: var(--eviter);
+      }
+      td .note {
+        color: var(--encre-3);
+        font-size: 0.78rem;
+      }
+      tbody tr:hover td {
+        background: #1c1b18;
+      }
+      #marches tr {
+        cursor: pointer;
+      }
+      #marches tr:hover td:first-child {
+        box-shadow: inset 2px 0 0 var(--vivant);
+      }
+
+      /* --------------------------------------------------------- pastilles */
       .pastille {
-        display: inline-block; font-size: 0.7rem; text-transform: uppercase;
-        letter-spacing: 0.06em; padding: 0.1rem 0.5rem; border-radius: 999px;
-        border: 1px solid var(--bord); color: var(--encre-3);
+        display: inline-block;
+        font-size: 0.68rem;
+        text-transform: uppercase;
+        letter-spacing: 0.07em;
+        font-weight: 600;
+        padding: 0.12rem 0.5rem;
+        border-radius: 999px;
+        border: 1px solid var(--bord-vif);
+        color: var(--encre-3);
+        white-space: nowrap;
       }
-      .pastille.tradable { color: var(--teal); border-color: var(--teal); }
-      .pastille.efficient { color: var(--encre); }
-      .pastille.piege { color: var(--laiton); border-color: var(--laiton); }
-      .pastille.mort, .pastille.desequilibre { color: var(--alarme); border-color: var(--alarme); }
-      #journal { max-height: 16rem; overflow-y: auto; font-size: 0.85rem; }
-      .ligne { padding: 0.35rem 0; border-bottom: 1px solid #241f1b; color: var(--encre-2); }
-      .ligne.ok { color: var(--teal); }
-      .ligne.erreur { color: var(--alarme); }
-      .note { font-size: 0.8rem; color: var(--encre-3); }
-      .chiffre { font-size: 1.5rem; font-variant-numeric: tabular-nums; }
-      ul { margin: 0.4rem 0 0; padding-left: 1.1rem; }
-      li { margin-bottom: 0.35rem; color: var(--encre-2); font-size: 0.87rem; }
-      code { background: #221e1a; padding: 0.1rem 0.3rem; border-radius: 4px; font-size: 0.85em; }
+      .pastille.tradable {
+        color: var(--vivant);
+        border-color: color-mix(in srgb, var(--vivant) 55%, transparent);
+        background: color-mix(in srgb, var(--vivant) 12%, transparent);
+      }
+      .pastille.efficient {
+        color: var(--serre);
+        border-color: color-mix(in srgb, var(--serre) 55%, transparent);
+        background: color-mix(in srgb, var(--serre) 12%, transparent);
+      }
+      .pastille.mort,
+      .pastille.piege,
+      .pastille.desequilibre,
+      .pastille.lent {
+        color: var(--eviter);
+        border-color: color-mix(in srgb, var(--eviter) 55%, transparent);
+        background: color-mix(in srgb, var(--eviter) 12%, transparent);
+      }
+
+      /* ---------------------------------------------------------- journal */
+      pre {
+        background: #121110;
+        border: 1px solid var(--bord);
+        border-radius: 8px;
+        padding: 0.85rem;
+        overflow-x: auto;
+        font-size: 0.82rem;
+        line-height: 1.55;
+        color: var(--encre-2);
+        margin: 0.9rem 0 0;
+        white-space: pre-wrap;
+        font-family: ui-monospace, "SF Mono", "Cascadia Mono", Menlo, monospace;
+      }
+      #journal {
+        max-height: 15rem;
+        overflow-y: auto;
+        font-size: 0.83rem;
+        font-family: ui-monospace, "SF Mono", "Cascadia Mono", Menlo, monospace;
+      }
+      .ligne {
+        padding: 0.38rem 0;
+        border-bottom: 1px solid #211f1c;
+        color: var(--encre-2);
+      }
+      .ligne.ok {
+        color: var(--vivant);
+      }
+      .ligne.erreur {
+        color: var(--eviter);
+      }
+
+      .chiffre {
+        font-size: 1.7rem;
+        font-weight: 620;
+        letter-spacing: -0.03em;
+        font-family: ui-monospace, "SF Mono", "Cascadia Mono", Menlo, monospace;
+        font-variant-numeric: tabular-nums;
+      }
+      .note {
+        font-size: 0.8rem;
+        color: var(--encre-3);
+      }
+      ul.refus {
+        margin: 0;
+        padding: 0;
+        list-style: none;
+        display: grid;
+        gap: 0.9rem;
+      }
+      @media (min-width: 52rem) {
+        ul.refus {
+          grid-template-columns: 1fr 1fr;
+          gap: 0.9rem 2rem;
+        }
+      }
+      ul.refus li {
+        color: var(--encre-2);
+        font-size: 0.87rem;
+        padding-left: 0.9rem;
+        border-left: 2px solid var(--bord-vif);
+      }
+      ul.refus b {
+        color: var(--encre);
+        display: block;
+        font-weight: 620;
+        margin-bottom: 0.15rem;
+      }
+      code {
+        background: var(--surface-2);
+        padding: 0.08rem 0.32rem;
+        border-radius: 4px;
+        font-size: 0.86em;
+        font-family: ui-monospace, "SF Mono", "Cascadia Mono", Menlo, monospace;
+      }
+      footer {
+        margin-top: 2.5rem;
+        color: var(--encre-3);
+        font-size: 0.82rem;
+        border-top: 1px solid var(--bord);
+        padding-top: 1.2rem;
+      }
     </style>
   </head>
   <body>
     <main>
-      <h1>DONmarket</h1>
-      <p class="sous">
-        Trader sur Polymarket depuis le navigateur. La clé privée reste dans
-        votre portefeuille&nbsp;; elle ne nous est jamais transmise. Ce que cette
-        interface fait de particulier&nbsp;: elle <strong>refuse des ordres</strong>,
-        et elle dit pourquoi.
-      </p>
-      <p id="mesure">chargement des mesures…</p>
+      <header class="bandeau">
+        <h1 class="marque">DONmarket <span>· Polymarket</span></h1>
+        <p class="accroche">
+          Une interface de trading qui <strong>refuse vos ordres</strong> — et
+          qui dit pourquoi. Votre clé ne quitte jamais votre portefeuille.
+        </p>
+      </header>
+
+      <section class="heros">
+        <p class="constat">
+          Là où il y a du volume, l'écart vaut <em>exactement un tick</em>.
+          Un écart plus large n'est pas une occasion : c'est l'absence de
+          contrepartie.
+        </p>
+        <p class="source" id="mesure">chargement des mesures…</p>
+        <div class="bande" id="bande" aria-hidden="true"></div>
+        <ul class="legende" id="legende"></ul>
+      </section>
 
       <section class="carte">
         <h2>
@@ -152,22 +524,22 @@
           <button id="rafraichir" class="mini">Rafraîchir</button>
         </h2>
         <div class="rangee">
-          <div><button id="connecter">Connecter le portefeuille</button></div>
+          <div><button id="connecter" class="principal">Connecter</button></div>
           <div>
             <label>Adresse</label>
-            <div id="adresse" class="note">non connecté</div>
+            <div id="adresse" class="note n">non connecté</div>
           </div>
           <div>
             <label>Disponible</label>
             <div id="solde" class="chiffre">—</div>
           </div>
         </div>
-        <div style="margin-top: 0.9rem">
+        <div style="margin-top: 1rem">
           <label for="proxy">
-            Adresse qui détient les fonds — laissez vide sauf si vos dépôts sont
-            sur un proxy
+            Adresse détenant les fonds — laissez vide, elle est dérivée
+            automatiquement
           </label>
-          <input id="proxy" placeholder="0x… (facultatif)" />
+          <input id="proxy" class="n" placeholder="0x… (facultatif)" />
         </div>
       </section>
 
@@ -177,7 +549,13 @@
           <div class="tableau">
             <table>
               <thead>
-                <tr><th>Marché</th><th>Parts</th><th>Prix moyen</th><th>P&amp;L</th><th></th></tr>
+                <tr>
+                  <th>Marché</th>
+                  <th>Parts</th>
+                  <th>Prix moyen</th>
+                  <th>P&amp;L</th>
+                  <th><span class="note">action</span></th>
+                </tr>
               </thead>
               <tbody id="positions">
                 <tr><td colspan="5" class="vide">connectez un portefeuille</td></tr>
@@ -191,7 +569,13 @@
           <div class="tableau">
             <table>
               <thead>
-                <tr><th>Côté</th><th>Parts</th><th>Prix</th><th>Rempli</th><th></th></tr>
+                <tr>
+                  <th>Côté</th>
+                  <th>Parts</th>
+                  <th>Prix</th>
+                  <th>Rempli</th>
+                  <th><span class="note">action</span></th>
+                </tr>
               </thead>
               <tbody id="ordres">
                 <tr><td colspan="5" class="vide">connectez un portefeuille</td></tr>
@@ -202,12 +586,21 @@
       </div>
 
       <section class="carte">
-        <h2><span>Marchés mesurés</span><span class="note">cliquez une ligne pour la charger</span></h2>
+        <h2>
+          <span>Marchés mesurés</span>
+          <span class="discret">cliquez une ligne pour la charger</span>
+        </h2>
         <input id="filtre" placeholder="filtrer : bitcoin, iran, premier league…" />
-        <div class="tableau" style="margin-top: 0.8rem; max-height: 22rem; overflow-y: auto">
+        <div class="tableau" style="margin-top: 0.9rem; max-height: 24rem; overflow-y: auto">
           <table>
             <thead>
-              <tr><th>Marché</th><th>Volume 24 h</th><th>Bid / Ask</th><th>Relevés</th><th>Verdict</th></tr>
+              <tr>
+                <th>Marché</th>
+                <th>Volume 24 h</th>
+                <th>Bid / Ask</th>
+                <th>Relevés</th>
+                <th>Verdict</th>
+              </tr>
             </thead>
             <tbody id="marches">
               <tr><td colspan="5" class="vide">chargement…</td></tr>
@@ -217,11 +610,11 @@
       </section>
 
       <section class="carte" id="ticket">
-        <h2><span>Ordre</span><span id="vif" class="note"></span></h2>
+        <h2><span>Ordre</span><span id="vif" class="discret n"></span></h2>
         <div class="rangee">
           <div style="grid-column: span 2">
             <label for="slug">Slug du marché</label>
-            <input id="slug" placeholder="will-russia-invade-another-country-in-2026" />
+            <input id="slug" class="n" placeholder="will-russia-invade-another-country-in-2026" />
           </div>
           <div>
             <label for="issue">Issue</label>
@@ -233,9 +626,9 @@
           <div><button id="charger">Lire le carnet</button></div>
         </div>
         <pre id="carnet">Aucun marché chargé.</pre>
-        <p style="margin: 0.7rem 0 0"><span id="verdict" class="pastille">—</span></p>
+        <p style="margin: 0.8rem 0 0"><span id="verdict" class="pastille">—</span></p>
 
-        <div class="rangee" style="margin-top: 1rem">
+        <div class="rangee" style="margin-top: 1.1rem">
           <div>
             <label for="cote">Côté</label>
             <select id="cote">
@@ -245,17 +638,17 @@
           </div>
           <div>
             <label for="prix">Prix</label>
-            <input id="prix" type="number" step="0.001" min="0" max="1" placeholder="0.14" />
+            <input id="prix" class="n" type="number" step="0.001" min="0" max="1" placeholder="0.14" />
           </div>
           <div>
             <label for="parts">Parts</label>
-            <input id="parts" type="number" step="1" min="0" placeholder="10" />
+            <input id="parts" class="n" type="number" step="1" min="0" placeholder="10" />
           </div>
-          <div><button id="poser">Poser l'ordre</button></div>
+          <div><button id="poser" class="principal">Poser l'ordre</button></div>
         </div>
-        <p class="note" style="margin-top: 0.8rem">
-          L'ordre part en <code>post-only</code>&nbsp;: il est refusé plutôt que
-          de traverser l'écart et de payer les frais de preneur.
+        <p class="note" style="margin-top: 0.9rem">
+          L'ordre part en <code>post-only</code> : il est refusé plutôt que de
+          traverser l'écart et de payer les frais de preneur.
         </p>
       </section>
 
@@ -266,41 +659,46 @@
 
       <section class="carte">
         <h2>Ce que cette page refuse, et pourquoi</h2>
-        <ul>
+        <ul class="refus">
           <li>
-            <strong>Carnet « mort » ou « piège »</strong> — un écart large sur un
-            marché sans volume paie sur le papier et ne se remplit jamais. Mesuré
-            le 26 août 2026 sur 789 carnets&nbsp;: là où il y a du volume, l'écart
-            vaut exactement un tick. Un écart plus large signale l'absence de
-            contrepartie, pas une occasion.
+            <b>Carnet mort ou piège</b>
+            Un écart large sur un marché sans volume paie sur le papier et ne se
+            remplit jamais. Mesuré sur l'ensemble des carnets, chaque jour.
           </li>
           <li>
-            <strong>Taille au minimum exact</strong> — un remplissage partiel
-            laisse un reliquat sous le minimum d'ordre, donc invendable. Ce piège
-            a coûté deux fois&nbsp;: à l'achat, puis à la vente, où il est resté
-            1,74&nbsp;part sous un minimum de 5.
+            <b>Taille au minimum exact</b>
+            Un remplissage partiel laisse un reliquat sous le minimum d'ordre,
+            donc invendable. Ce piège a coûté deux fois : à l'achat, puis à la
+            vente, où il est resté 1,74 part sous un minimum de 5.
           </li>
           <li>
-            <strong>Vente au-dessus du meilleur ask</strong> — hors marché, elle
-            ne peut pas se remplir, quel que soit le temps qu'elle attend.
+            <b>Vente au-dessus du meilleur ask</b>
+            Hors marché : elle ne peut pas se remplir, quel que soit le temps
+            qu'elle attend.
           </li>
           <li>
-            <strong>Ordre qui traverse l'écart</strong> — vous devenez preneur et
-            payez les frais qu'un teneur évite.
+            <b>Ordre qui traverse l'écart</b>
+            Vous devenez preneur et payez les frais qu'un teneur évite.
           </li>
           <li>
-            <strong>Annulation qui piège un reliquat</strong> — annuler une vente
-            partiellement remplie peut laisser moins que le minimum d'ordre. La
-            page le dit avant, pas après.
+            <b>Annulation qui piège un reliquat</b>
+            Annuler une vente partiellement remplie peut laisser moins que le
+            minimum d'ordre. La page le dit avant, pas après.
+          </li>
+          <li>
+            <b>Adresse de fonds invalide</b>
+            Une saisie fautive fait accepter l'ordre puis le rejeter pour solde
+            insuffisant, en pointant une adresse vide.
           </li>
         </ul>
-        <p class="note" style="margin-top: 0.9rem">
-          La colonne <strong>Relevés</strong> indique depuis combien de mesures
-          quotidiennes un marché porte le même verdict. Ce chiffre ne se
-          reconstitue pas rétroactivement&nbsp;: il faut avoir mesuré jour après
-          jour.
-        </p>
       </section>
+
+      <footer>
+        La colonne <strong>Relevés</strong> indique depuis combien de mesures
+        quotidiennes consécutives un marché porte le même verdict. Ce chiffre ne
+        se reconstitue pas rétroactivement : il faut avoir mesuré jour après
+        jour. C'est la seule chose ici qu'un concurrent ne peut pas rattraper.
+      </footer>
     </main>
     <script type="module" src="./app.js"></script>
   </body>

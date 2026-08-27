@@ -4,7 +4,7 @@
  * Chaque cas ici correspond a une perte reelle datee. Ce ne sont pas des
  * hypotheses : ce sont les facons dont on a deja perdu de l'argent.
  */
-import { verifier, carnet, vendable, adresseValide, MULTIPLE_MINIMUM } from './app.js';
+import { verifier, carnet, vendable, adresseValide, composition, MULTIPLE_MINIMUM } from './app.js';
 
 let echecs = 0;
 const verifie = (nom, condition) => {
@@ -139,6 +139,28 @@ verifie('sans prefixe 0x refusee', adresseValide('a53f836A69eB09D48160D2A992c209
 verifie('caractere non hexadecimal refuse',
   adresseValide('0xZ53f836A69eB09D48160D2A992c209d2e164F0F4') === false);
 verifie('trop longue refusee', adresseValide('0xa53f836A69eB09D48160D2A992c209d2e164F0F4aa') === false);
+
+// --- Composition de l'univers mesure -------------------------------------
+// Trois categories, pas quatre : la paire rouge/jaune echouait le plancher de
+// VISION NORMALE du validateur de palette. « desequilibre », « piege » et
+// « mort » disent la meme chose au trader.
+const univers = [
+  { verdict: 'tradable' }, { verdict: 'tradable' }, { verdict: 'tradable' },
+  { verdict: 'efficient' },
+  { verdict: 'mort' }, { verdict: 'piege' }, { verdict: 'desequilibre' }, { verdict: 'lent' },
+];
+const comp = composition(univers);
+verifie('trois categories exactement', comp.length === 3);
+verifie('les cotables sont comptes', comp[0].n === 3 && comp[0].nom === 'cotables');
+verifie('les serres sont comptes', comp[1].n === 1);
+verifie('les quatre verdicts nuisibles sont fusionnes', comp[2].n === 4);
+verifie('les parts totalisent 1', Math.abs(comp.reduce((s, c) => s + c.part, 0) - 1) < 1e-9);
+verifie('chaque segment porte un nom, pas seulement une couleur',
+  comp.every((c) => typeof c.nom === 'string' && c.nom.length > 0));
+verifie('un univers vide ne divise pas par zero',
+  composition([]).every((c) => c.n === 0 && Number.isFinite(c.part)));
+verifie('un verdict inconnu ne fausse aucun compte',
+  composition([{ verdict: 'inattendu' }]).reduce((s, c) => s + c.n, 0) === 0);
 
 // --- FAILLE XSS FERMEE LE 2026-08-27, verrouillee ici ---------------------
 // Les lignes de tableau etaient construites par `tr.innerHTML = ...` avec des

@@ -473,6 +473,73 @@ async function annuler(ordre, rempli, total) {
   }
 }
 
+/**
+ * Composition de l'univers mesure, en une bande et sa legende.
+ *
+ * TROIS categories, pas quatre. Une premiere version separait
+ * « desequilibre » de « mort » : le validateur de palette a refuse la paire
+ * rouge/jaune sur le plancher de VISION NORMALE (ΔE 13,0 < 15) -- deux couleurs
+ * qu'un oeil sans deficience confond deja. Plutot que forcer une teinte, on a
+ * fusionne : pour qui trade, « desequilibre », « piege » et « mort » disent la
+ * meme chose, a savoir n'y va pas.
+ *
+ * L'avertissement daltonien restant (ΔE 6,5 protan) n'est admis QU'AVEC un
+ * encodage secondaire. D'ou la legende, qui nomme et chiffre chaque segment :
+ * la couleur ne porte jamais l'information seule.
+ */
+const COMPOSITION = [
+  { cle: 'vivant', nom: 'cotables', couleur: 'var(--vivant)', verdicts: ['tradable'] },
+  { cle: 'serre', nom: 'serres', couleur: 'var(--serre)', verdicts: ['efficient'] },
+  {
+    cle: 'eviter',
+    nom: 'a eviter',
+    couleur: 'var(--eviter)',
+    verdicts: ['mort', 'piege', 'desequilibre', 'lent'],
+  },
+];
+
+export function composition(lignes) {
+  const total = lignes.length || 1;
+  return COMPOSITION.map((c) => {
+    const n = lignes.filter((l) => c.verdicts.includes(l.verdict)).length;
+    return { ...c, n, part: n / total };
+  });
+}
+
+function rendreComposition(lignes) {
+  const parts = composition(lignes);
+  const bande = $('bande');
+  const legende = $('legende');
+  if (!bande || !legende) return;
+
+  bande.replaceChildren(
+    ...parts
+      .filter((p) => p.n > 0)
+      .map((p) => {
+        const i = document.createElement('i');
+        i.style.flex = `${p.part}`;
+        i.style.background = p.couleur;
+        return i;
+      }),
+  );
+
+  legende.replaceChildren(
+    ...parts.map((p) => {
+      const li = document.createElement('li');
+      const puce = document.createElement('span');
+      puce.className = 'puce';
+      puce.style.background = p.couleur;
+      const compte = document.createElement('b');
+      compte.className = 'n';
+      compte.textContent = String(p.n);
+      const nom = document.createElement('span');
+      nom.textContent = `${p.nom} · ${Math.round(100 * p.part)} %`;
+      li.append(puce, compte, nom);
+      return li;
+    }),
+  );
+}
+
 /* =============================================================== marches == */
 
 function rendreListe(filtre = '') {
@@ -636,9 +703,25 @@ async function demarrer() {
     const r = await fetch(SANTE_URL, { cache: 'no-store' });
     etat.lignes = await r.json();
     for (const l of etat.lignes) etat.sante.set(l.slug, l);
-    const vivants = etat.lignes.filter((l) => l.verdict === 'tradable').length;
-    const morts = etat.lignes.filter((l) => l.verdict === 'mort' || l.verdict === 'piege').length;
-    $('mesure').textContent = `${etat.lignes.length} carnets mesures · ${vivants} cotables · ${morts} a eviter`;
+    // La date vient du RELEVE, pas de l'horloge du visiteur. Afficher la date
+    // du jour donnerait au lecteur du 27 aout des chiffres du 26 presentes
+    // comme frais -- sur une page dont la credibilite est la mesure, ce
+    // decalage d'un jour suffit a la detruire.
+    let quand = 'date inconnue';
+    try {
+      const meta = await (await fetch('./health-meta.json', { cache: 'no-store' })).json();
+      quand = new Date(meta.mesure).toLocaleString('fr-FR', {
+        day: 'numeric',
+        month: 'long',
+        hour: '2-digit',
+        minute: '2-digit',
+      });
+    } catch {
+      // Sans le fichier de metadonnees, on ne DEVINE pas : on le dit.
+    }
+    $('mesure').textContent =
+      `${etat.lignes.length} carnets sondes un a un sur le carnet reel — releve du ${quand}.`;
+    rendreComposition(etat.lignes);
     rendreListe();
   } catch (e) {
     dire(`Verdicts indisponibles : ${e.message || e}`, 'erreur');
