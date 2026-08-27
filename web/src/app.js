@@ -15,8 +15,17 @@
  *      est reste 1,74 part. D'ou la regle des deux fois `orderMinSize`, des
  *      DEUX cotes.
  *   3. Vente au-dessus du meilleur ask -- hors marche, jamais remplissable.
- *   4. Ordre qui traverse l'ecart -- on devient preneur et on paie les frais
- *      qu'un teneur evite.
+ *
+ * ET CE QU'ELLE NE BLOQUE PLUS (2026-08-27)
+ *
+ * L'ordre qui traverse l'ecart etait refuse lui aussi. C'etait une faute, et
+ * elle etait chere : notre bareme builder est maker 0 / taker 10 bps, donc on
+ * n'encaisse QUE sur un ordre preneur. Refuser tous les preneurs garantissait
+ * un revenu nul quel que soit le nombre d'utilisateurs -- pas faute d'audience,
+ * faute de mecanisme. Il est desormais ANNONCE et CHIFFRE (`avertir`), puis
+ * exige un second geste identique. On dit le prix, on ne decide pas a la place.
+ * Meme lecon que le garde-fou de chemins du meme jour : une interdiction qu'on
+ * n'a pas confrontee au trafic reel coute plus que le risque qu'elle imagine.
  *
  * Elle affiche aussi la PERSISTANCE d'un verdict (« mort depuis 6 releves »).
  * Ce chiffre ne se reconstitue pas retroactivement : il faut avoir mesure jour
@@ -70,6 +79,8 @@ const etat = {
   adresse: null,
   marche: null,
   minuteur: null,
+  // Signature du dernier ordre preneur annonce mais pas encore confirme.
+  confirme: null,
 };
 
 const $ = (id) => document.getElementById(id);
@@ -190,6 +201,59 @@ async function toutes(paginator) {
  * s'y oppose », pas « c'est une bonne idee » : ces controles disent que
  * l'ordre peut s'executer, pas qu'il est rentable.
  */
+/**
+ * Notre bareme builder, MESURE sur `get_builder_fee_rates` le 2026-08-26 :
+ * maker 0, taker 0,001 (10 bps), preleve EN PLUS et paye PAR LE TRADER.
+ *
+ * Consequence qu'on a mis dix jours a voir : on n'est paye QUE lorsqu'un ordre
+ * traverse l'ecart. Tant que l'app refusait tout ordre preneur, son revenu
+ * etait nul PAR CONSTRUCTION -- pas faute d'utilisateurs, faute de mecanisme.
+ * C'est la meme lecon que le garde-fou de chemins du 27/08, un cran plus haut :
+ * une interdiction qu'on n'a pas confrontee au trafic reel coute plus cher que
+ * le risque qu'elle imagine.
+ */
+export const TAUX_PRENEUR = 0.001;
+
+/** Cet ordre traverse-t-il l'ecart ? Sans carnet lisible, on ne l'affirme pas. */
+export function estPreneur({ cote, prix, carnet: c }) {
+  if (!Number.isFinite(prix)) return false;
+  if (cote === 'BUY') return c.ask !== null && prix >= c.ask;
+  if (cote === 'SELL') return c.bid !== null && prix <= c.bid;
+  return false;
+}
+
+/** Ce que le passage en preneur coute au trader, en dollars. */
+export function coutPreneur(parts, prix, taux = TAUX_PRENEUR) {
+  return parts * prix * taux;
+}
+
+/**
+ * Ce qui identifie un ordre pour la confirmation : si l'utilisateur change quoi
+ * que ce soit entre les deux clics, la confirmation tombe. Deux clics identiques
+ * plutot qu'une modale : une boite de dialogue bloque la page, et ne se teste pas.
+ */
+export function signatureOrdre({ cote, prix, parts, tokenId }) {
+  return `${cote}|${prix}|${parts}|${tokenId}`;
+}
+
+/**
+ * Ce qui merite d'etre DIT sans etre interdit : l'utilisateur decide, mais il
+ * decide en connaissant le prix exact de son geste.
+ */
+export function avertir({ cote, prix, parts, carnet: c }) {
+  const avis = [];
+  if (!estPreneur({ cote, prix, carnet: c })) return avis;
+  const reference = cote === 'BUY' ? c.ask : c.bid;
+  const cout = coutPreneur(parts, prix);
+  avis.push(
+    `${cote === 'BUY' ? 'Achat' : 'Vente'} a ${prix} : l'ordre traverse l'ecart ` +
+      `(${cote === 'BUY' ? 'ask' : 'bid'} ${reference}) et se remplit tout de suite. ` +
+      `Tu paies les frais de preneur : ${cout.toFixed(4).replace('.', ',')} $ ` +
+      `sur ${(parts * prix).toFixed(2).replace('.', ',')} $ engages.`,
+  );
+  return avis;
+}
+
 export function verifier({ cote, prix, parts, carnet: c, marche: m, verdict }) {
   const refus = [];
 
@@ -216,18 +280,6 @@ export function verifier({ cote, prix, parts, carnet: c, marche: m, verdict }) {
     refus.push(
       `Vente a ${prix} au-dessus du meilleur ask (${c.ask}) : hors marche, ` +
         `elle ne peut pas se remplir.`,
-    );
-  }
-  if (cote === 'BUY' && c.ask !== null && prix >= c.ask) {
-    refus.push(
-      `Achat a ${prix} au niveau ou au-dessus de l'ask (${c.ask}) : ` +
-        `l'ordre traverse l'ecart et paie les frais de preneur.`,
-    );
-  }
-  if (cote === 'SELL' && c.bid !== null && prix <= c.bid) {
-    refus.push(
-      `Vente a ${prix} au niveau ou sous le bid (${c.bid}) : ` +
-        `l'ordre traverse l'ecart et paie les frais de preneur.`,
     );
   }
   return refus;
@@ -744,11 +796,26 @@ async function poser() {
     return dire(`Carnet illisible, rien envoye : ${e.message || e}`, 'erreur');
   }
 
-  const refus = verifier({ cote, prix, parts, carnet: c, marche: m, verdict: etat.sante.get(m.slug) });
+  const contexte = { cote, prix, parts, carnet: c, marche: m, verdict: etat.sante.get(m.slug) };
+  const refus = verifier(contexte);
   if (refus.length) {
     for (const r of refus) dire(`REFUSE — ${r}`, 'erreur');
+    etat.confirme = null;
     return;
   }
+
+  // Un ordre qui traverse l'ecart n'est plus INTERDIT, il est ANNONCE : on dit
+  // ce qu'il coute, et on demande le meme geste une seconde fois.
+  const preneur = estPreneur({ cote, prix, carnet: c });
+  const avis = avertir(contexte);
+  const signature = signatureOrdre({ cote, prix, parts, tokenId: m.tokens[m.issue] });
+  if (avis.length && etat.confirme !== signature) {
+    for (const a of avis) dire(`ATTENTION — ${a}`, 'erreur');
+    dire('Renvoie exactement le meme ordre pour confirmer.', 'erreur');
+    etat.confirme = signature;
+    return;
+  }
+  etat.confirme = null;
 
   dire(`Envoi : ${cote} ${parts} @ ${prix} (${fmt(parts * prix)} $)…`);
   try {
@@ -758,8 +825,11 @@ async function poser() {
       size: parts,
       side: cote,
       ...(etat.config.builderCode ? { builderCode: etat.config.builderCode } : {}),
-      // Refuse l'ordre plutot que de traverser l'ecart et devenir preneur.
-      postOnly: true,
+      // Teneur : `postOnly` protege d'un franchissement accidentel du carnet.
+      // Preneur : le CLOB refuserait l'ordre, or c'est le seul type d'ordre qui
+      // nous rapporte quoi que ce soit. Le franchissement est ici DELIBERE,
+      // annonce et confirme -- il n'a plus a etre empeche.
+      postOnly: !preneur,
     });
     dire(`Accepte — ${reponse.orderId || reponse.status || 'ok'}`, 'ok');
     await rafraichirPortefeuille();

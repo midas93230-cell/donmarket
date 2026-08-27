@@ -5,7 +5,8 @@
  * hypotheses : ce sont les facons dont on a deja perdu de l'argent.
  */
 import {
-  verifier, carnet, vendable, adresseValide, composition, estPanneReseau, MULTIPLE_MINIMUM,
+  verifier, avertir, estPreneur, coutPreneur, carnet, vendable, adresseValide,
+  composition, estPanneReseau, MULTIPLE_MINIMUM, TAUX_PRENEUR, signatureOrdre,
 } from './app.js';
 
 let echecs = 0;
@@ -42,11 +43,62 @@ verifie(
 );
 
 // --- Traverser l'ecart fait payer les frais de preneur --------------------
-verifie('refuse un achat a l ask', contient(verifier(base({ prix: 0.18 })), "traverse l'ecart"));
-verifie(
-  'refuse une vente au bid',
-  contient(verifier(base({ cote: 'SELL', prix: 0.13 })), "traverse l'ecart"),
-);
+// --- 2026-08-27 : LE MUR QUI RENDAIT NOTRE REVENU IMPOSSIBLE ---------------
+// Notre barieme builder est maker 0, taker 10 bps : on n'est paye QUE sur un
+// ordre qui traverse l'ecart. Refuser tout preneur, c'est garantir zero dollar
+// quel que soit le nombre d'utilisateurs. On AVERTIT desormais, on ne bloque
+// plus -- l'utilisateur decide en connaissant le prix exact.
+verifie('un achat a l ask n est plus REFUSE', verifier(base({ prix: 0.18 })).length === 0);
+verifie('une vente au bid n est plus REFUSEE',
+  verifier(base({ cote: 'SELL', prix: 0.13 })).length === 0);
+
+verifie('un achat a l ask est reconnu preneur',
+  estPreneur({ cote: 'BUY', prix: 0.18, carnet: CARNET }) === true);
+verifie('un achat au-dessus de l ask est preneur',
+  estPreneur({ cote: 'BUY', prix: 0.19, carnet: CARNET }) === true);
+verifie('un achat sous l ask reste teneur',
+  estPreneur({ cote: 'BUY', prix: 0.17, carnet: CARNET }) === false);
+verifie('une vente au bid est preneur',
+  estPreneur({ cote: 'SELL', prix: 0.13, carnet: CARNET }) === true);
+verifie('une vente au-dessus du bid reste teneuse',
+  estPreneur({ cote: 'SELL', prix: 0.14, carnet: CARNET }) === false);
+verifie('sans carnet lisible on ne declare pas preneur',
+  estPreneur({ cote: 'BUY', prix: 0.18, carnet: { bid: null, ask: null } }) === false);
+
+verifie('le taux preneur mesure est bien 10 bps', TAUX_PRENEUR === 0.001);
+verifie('25 parts a 0,18 coutent 0,0045 $ de frais',
+  Math.abs(coutPreneur(25, 0.18) - 0.0045) < 1e-9);
+
+verifie('un achat preneur est AVERTI', contient(avertir(base({ prix: 0.18 })), "traverse l'ecart"));
+verifie('l avertissement chiffre les frais',
+  contient(avertir(base({ prix: 0.18 })), '0,0045'));
+verifie('un ordre teneur ne declenche aucun avertissement',
+  avertir(base()).length === 0);
+verifie('une vente preneuse est AVERTIE',
+  contient(avertir(base({ cote: 'SELL', prix: 0.13 })), "traverse l'ecart"));
+
+// La confirmation d'un ordre preneur : deux clics identiques, pas de modale
+// (une boite de dialogue bloque la page et n'est pas testable).
+verifie('deux ordres identiques ont la meme signature',
+  signatureOrdre({ cote: 'BUY', prix: 0.18, parts: 25, tokenId: 'abc' })
+  === signatureOrdre({ cote: 'BUY', prix: 0.18, parts: 25, tokenId: 'abc' }));
+verifie('changer le prix invalide la confirmation',
+  signatureOrdre({ cote: 'BUY', prix: 0.18, parts: 25, tokenId: 'abc' })
+  !== signatureOrdre({ cote: 'BUY', prix: 0.19, parts: 25, tokenId: 'abc' }));
+verifie('changer la taille invalide la confirmation',
+  signatureOrdre({ cote: 'BUY', prix: 0.18, parts: 25, tokenId: 'abc' })
+  !== signatureOrdre({ cote: 'BUY', prix: 0.18, parts: 26, tokenId: 'abc' }));
+verifie('changer de marche invalide la confirmation',
+  signatureOrdre({ cote: 'BUY', prix: 0.18, parts: 25, tokenId: 'abc' })
+  !== signatureOrdre({ cote: 'BUY', prix: 0.18, parts: 25, tokenId: 'xyz' }));
+
+// Les refus qui restent des refus : ils ne coutent aucun revenu.
+verifie('une vente AU-DESSUS de l ask reste refusee',
+  contient(verifier(base({ cote: 'SELL', prix: 0.25 })), 'au-dessus du meilleur ask'));
+verifie('un carnet mort reste un refus, meme pour un preneur',
+  verifier(base({ prix: 0.18, verdict: { verdict: 'mort', phrase: 'x' } })).length > 0);
+verifie('une taille sous le minimum reste refusee, meme pour un preneur',
+  verifier(base({ prix: 0.18, parts: 5 })).length > 0);
 
 // --- 2026-08-26 : un carnet mort ou piege est refuse d'office -------------
 verifie(
