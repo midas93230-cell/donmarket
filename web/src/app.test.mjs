@@ -4,7 +4,9 @@
  * Chaque cas ici correspond a une perte reelle datee. Ce ne sont pas des
  * hypotheses : ce sont les facons dont on a deja perdu de l'argent.
  */
-import { verifier, carnet, vendable, adresseValide, composition, MULTIPLE_MINIMUM } from './app.js';
+import {
+  verifier, carnet, vendable, adresseValide, composition, estPanneReseau, MULTIPLE_MINIMUM,
+} from './app.js';
 
 let echecs = 0;
 const verifie = (nom, condition) => {
@@ -161,6 +163,20 @@ verifie('un univers vide ne divise pas par zero',
   composition([]).every((c) => c.n === 0 && Number.isFinite(c.part)));
 verifie('un verdict inconnu ne fausse aucun compte',
   composition([{ verdict: 'inattendu' }]).reduce((s, c) => s + c.n, 0) === 0);
+
+// --- Panne reseau contre refus -------------------------------------------
+// Le 2026-08-27 trois connexions ont echoue sur « Request timed out » ; les
+// memes points d'acces repondaient en 0,4 a 2,4 s dans la minute. Le journal
+// disait « Connexion refusee », ce qui fait chercher au mauvais endroit.
+verifie('un delai depasse est une panne reseau',
+  estPanneReseau('Request timed out: POST https://clob.polymarket.com/auth/api-key'));
+verifie('fetch failed aussi', estPanneReseau('fetch failed'));
+verifie('Failed to fetch aussi', estPanneReseau('TypeError: Failed to fetch'));
+verifie('un refus de signature en est exclu',
+  !estPanneReseau('User rejected the request. Details: Request Signature'));
+verifie('un 403 du signeur en est exclu',
+  !estPanneReseau('Remote signer rejected request with status 403'));
+verifie('un message vide ne plante pas', estPanneReseau(undefined) === false);
 
 // --- FAILLE XSS FERMEE LE 2026-08-27, verrouillee ici ---------------------
 // Les lignes de tableau etaient construites par `tr.innerHTML = ...` avec des

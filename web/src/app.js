@@ -319,6 +319,24 @@ function ecrireSession(adresse, credentials) {
   }
 }
 
+/**
+ * Distingue une PANNE RESEAU d'un refus.
+ *
+ * Le 2026-08-27, trois tentatives de connexion ont echoue sur
+ * « Request timed out » vers le relayer et le CLOB. Mesure faite dans la
+ * minute : ces memes points d'acces repondaient en 0,4 a 2,4 s. C'etait donc
+ * un pic de latence, pas un rejet -- mais le journal affichait « Connexion
+ * refusee », ce qui fait chercher au mauvais endroit.
+ *
+ * La distinction compte pour l'utilisateur : un refus demande de corriger
+ * quelque chose, un delai depasse demande seulement de recommencer.
+ */
+export function estPanneReseau(message) {
+  return /timed out|timeout|network|fetch failed|failed to fetch|ECONN|ETIMEDOUT/i.test(
+    String(message || ''),
+  );
+}
+
 async function connecter() {
   if (!window.ethereum) {
     dire('Aucun portefeuille detecte. Installe MetaMask ou equivalent.', 'erreur');
@@ -359,6 +377,11 @@ async function connecter() {
       );
       return;
     }
+    // L'adresse est annoncee AVANT la signature. Le 2026-08-27, un autre
+    // portefeuille a ete connecte sans qu'on le remarque : chaque adresse ouvre
+    // un compte Polymarket DIFFERENT, avec son propre solde. Le dire avant
+    // evite de chercher un bug la ou il y a un changement de compte.
+    $('adresse').textContent = `${adresse.slice(0, 6)}…${adresse.slice(-4)}`;
     const memorises = lireSession(adresse);
     dire(
       memorises
@@ -411,7 +434,15 @@ async function connecter() {
     dire(`Connecte : ${adresse}`, 'ok');
     await rafraichirPortefeuille();
   } catch (e) {
-    dire(`Connexion refusee : ${causes(e)}`, "erreur");
+    const detail = causes(e);
+    if (estPanneReseau(detail)) {
+      dire(
+        `Polymarket n'a pas repondu a temps — ce n'est pas un refus. Reessaie. (${detail})`,
+        'erreur',
+      );
+    } else {
+      dire(`Connexion refusee : ${detail}`, 'erreur');
+    }
   }
 }
 
