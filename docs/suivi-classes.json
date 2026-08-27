@@ -1,0 +1,42 @@
+[
+  {
+    "mesure_le": "2026-08-27T23:35:00.130255+00:00",
+    "fige_le": "2026-08-27T22:20:41.891674+00:00",
+    "heures_ecoulees": 1.24,
+    "handicap_copie": 0.031,
+    "groupes": {
+      "ALL": {
+        "achats": 254,
+        "marches": 50,
+        "median_par_marche": -0.027326840531849084,
+        "moyen_par_marche": -0.1191761661474728,
+        "marches_gagnants": 17,
+        "wallets_actifs": 1
+      },
+      "MONTH": {
+        "achats": 809,
+        "marches": 223,
+        "median_par_marche": -0.00501002004008011,
+        "moyen_par_marche": -0.029129273045320064,
+        "marches_gagnants": 41,
+        "wallets_actifs": 5
+      },
+      "WEEK": {
+        "achats": 1040,
+        "marches": 138,
+        "median_par_marche": -0.00800800800800805,
+        "moyen_par_marche": -0.03352453647480388,
+        "marches_gagnants": 35,
+        "wallets_actifs": 8
+      },
+      "DAY": {
+        "achats": 1128,
+        "marches": 152,
+        "median_par_marche": -0.01851851851851849,
+        "moyen_par_marche": -0.07662942785028187,
+        "marches_gagnants": 21,
+        "wallets_actifs": 11
+      }
+    }
+  }
+]
