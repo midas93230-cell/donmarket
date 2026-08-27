@@ -283,6 +283,42 @@ export function vendable(detenu, minimum) {
 
 /* ========================================================== portefeuille == */
 
+/**
+ * Memoire de session des identifiants CLOB.
+ *
+ * POURQUOI SESSIONSTORAGE ET PAS LOCALSTORAGE. Recharger la page redemandait
+ * une signature : la friction se remarque dans les trente premieres secondes.
+ * Conserver les identifiants la supprime, mais ce sont des identifiants -- s'ils
+ * fuyaient, ils permettraient de POSER ET D'ANNULER des ordres sur le compte.
+ * Pas d'en sortir les fonds : un transfert exige une signature du portefeuille.
+ *
+ * `sessionStorage` referme la fenetre d'exposition a la fermeture de l'onglet,
+ * la ou `localStorage` la laisserait ouverte indefiniment. On vient de fermer
+ * une XSS sur cette page ; garder la surface petite est le bon reflexe.
+ *
+ * Chaque acces est garde : navigation privee, stockage bloque par le navigateur
+ * ou quota plein levent, et une page qui plante au demarrage pour un confort
+ * serait un mauvais echange.
+ */
+const CLE_SESSION = 'donmarket:clob:';
+
+function lireSession(adresse) {
+  try {
+    const brut = sessionStorage.getItem(CLE_SESSION + adresse.toLowerCase());
+    return brut ? JSON.parse(brut) : null;
+  } catch {
+    return null;
+  }
+}
+
+function ecrireSession(adresse, credentials) {
+  try {
+    sessionStorage.setItem(CLE_SESSION + adresse.toLowerCase(), JSON.stringify(credentials));
+  } catch {
+    // Sans stockage on resigne au prochain chargement : c'est degrade, pas casse.
+  }
+}
+
 async function connecter() {
   if (!window.ethereum) {
     dire('Aucun portefeuille detecte. Installe MetaMask ou equivalent.', 'erreur');
@@ -323,7 +359,12 @@ async function connecter() {
       );
       return;
     }
-    dire('Signature demandee pour deriver les identifiants CLOB…');
+    const memorises = lireSession(adresse);
+    dire(
+      memorises
+        ? 'Identifiants CLOB repris de cette session, aucune signature requise…'
+        : 'Signature demandee pour deriver les identifiants CLOB…',
+    );
 
     // DEUX CLIENTS, ET C'EST LE COEUR DE L'AFFAIRE.
     //
@@ -345,9 +386,21 @@ async function connecter() {
       signer: signerFrom(walletClient),
       ...(proxy ? { wallet: proxy } : {}),
     };
-    etat.client = await createSecureClient(commun);
+    etat.client = await createSecureClient(
+      memorises ? { ...commun, credentials: memorises } : commun,
+    );
+    ecrireSession(adresse, etat.client.credentials);
+
+    // UNE SEULE SIGNATURE, PAS DEUX. Deriver deux fois demandait deux fois la
+    // signature de l'utilisateur pour le meme compte -- une friction qu'on
+    // remarque dans les trente premieres secondes. Les identifiants CLOB sont
+    // deterministes pour un signataire donne : le client builder reprend donc
+    // ceux du premier, et ne differe que par l'autorisation appliquee aux
+    // requetes. Rien n'est stocke, rien n'est affaibli ; on cesse simplement de
+    // redemander ce qu'on a deja.
     etat.builder = await createSecureClient({
       ...commun,
+      credentials: etat.client.credentials,
       apiKey: remoteBuilderSigning({
         url: etat.config.signeur,
         ...(etat.config.jeton ? { headers: { Authorization: `Bearer ${etat.config.jeton}` } } : {}),
@@ -727,6 +780,24 @@ async function demarrer() {
     dire(`Verdicts indisponibles : ${e.message || e}`, 'erreur');
   }
   $('connecter').addEventListener('click', connecter);
+
+  // REPRISE SILENCIEUSE. `getAddresses()` interroge les comptes DEJA autorises
+  // sans rien demander -- contrairement a `requestAddresses()`, qui ouvre le
+  // portefeuille. Si le compte est deja autorise ET que cette session a garde
+  // ses identifiants, on se rebranche sans un seul clic ni une seule signature.
+  // Sinon on ne fait rien : surprendre l'utilisateur avec une fenetre de
+  // portefeuille au chargement serait pire que le rechargement qu'on corrige.
+  try {
+    if (window.ethereum) {
+      const [deja] = await createWalletClient({
+        chain: polygon,
+        transport: custom(window.ethereum),
+      }).getAddresses();
+      if (deja && lireSession(deja)) await connecter();
+    }
+  } catch {
+    // Un portefeuille absent ou muet laisse simplement le bouton disponible.
+  }
   $('charger').addEventListener('click', rafraichirCarnet);
   $('poser').addEventListener('click', poser);
   $('rafraichir').addEventListener('click', rafraichirPortefeuille);
