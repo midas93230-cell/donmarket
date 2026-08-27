@@ -87,13 +87,13 @@ verifie("signe /cancel-all", cheminAutorise("/cancel-all"));
 verifie("signe /closed-positions", cheminAutorise("/closed-positions"));
 verifie("REFUSE la gestion de la cle builder", !cheminAutorise("/auth/builder-api-key"));
 verifie("REFUSE un sous-chemin de la cle builder", !cheminAutorise("/auth/builder-api-key/revoke"));
-verifie("REFUSE la liste des cles d'API", !cheminAutorise("/auth/api-keys"));
-verifie("REFUSE un sous-chemin des cles", !cheminAutorise("/auth/api-keys/123"));
-verifie("l'interdit resiste a la chaine de requete", !cheminAutorise("/auth/api-keys?x=1"));
-verifie("l'interdit resiste a la barre finale", !cheminAutorise("/auth/api-keys/"));
+verifie("signe /auth/api-keys (cles de L'UTILISATEUR, pas les notres)", cheminAutorise("/auth/api-keys"));
+verifie("signe un sous-chemin des cles utilisateur", cheminAutorise("/auth/api-keys/123"));
+verifie("l'interdit resiste a la chaine de requete", !cheminAutorise("/auth/builder-api-key?x=1"));
+verifie("l'interdit resiste a la barre finale", !cheminAutorise("/auth/builder-api-key/"));
 // La frontiere est une BARRE : sans elle, /auth/api-key serait pris pour un
 // prefixe de /auth/api-keys et la connexion resterait cassee.
-verifie("/auth/api-key n'est PAS bloque par /auth/api-keys", cheminAutorise("/auth/api-key"));
+verifie("/auth/api-key reste signable", cheminAutorise("/auth/api-key"));
 verifie("refuse un chemin absent", !cheminAutorise(undefined));
 verifie("refuse un chemin sans barre initiale", !cheminAutorise("auth/api-keys"));
 const chemin = await worker.fetch(

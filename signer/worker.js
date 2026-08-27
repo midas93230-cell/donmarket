@@ -130,10 +130,27 @@ const ORIGINES_AUTORISEES = new Set([
  * Une interdiction courte et exacte vaut mieux qu'une autorisation longue et
  * fausse.
  */
-const CHEMINS_INTERDITS = ["/auth/builder-api-key", "/auth/api-keys"];
+const CHEMINS_INTERDITS = ["/auth/builder-api-key"];
+
+/*
+ * RESSERRE LE 2026-08-27, APRES QUE CE GARDE-FOU A CASSE L'APPLICATION DEUX
+ * FOIS. `/auth/api-keys` etait interdit lui aussi. C'etait une erreur de
+ * raisonnement : ce chemin manipule les cles de L'UTILISATEUR, authentifiees
+ * par SES identifiants, pas par nos en-tetes builder. Quelqu'un qui falsifie
+ * l'origine ne peut donc rien y faire a nos frais -- au pire il gere ses
+ * propres cles, ce qu'il peut deja faire sans nous.
+ *
+ * Le seul actif reellement expose ici est NOTRE cle builder, et un seul chemin
+ * la touche. Bloquer plus large ne protegeait rien de plus et empechait
+ * `beginAuthentication` d'aboutir des qu'on lui passait des identifiants
+ * memorises.
+ *
+ * La lecon vaut au-dela de ce fichier : une interdiction qu'on n'a pas verifiee
+ * contre le trafic reel finit par couter plus que le risque qu'elle imagine.
+ */
 
 /** À incrémenter à chaque changement de comportement. Voir `x-signeur-revision`. */
-const REVISION = "5-interdits-cibles";
+const REVISION = "6-interdit-resserre";
 
 function cheminAutorise(chemin) {
   if (typeof chemin !== "string" || !chemin.startsWith("/")) return false;
