@@ -4,7 +4,7 @@
  * Chaque cas ici correspond a une perte reelle datee. Ce ne sont pas des
  * hypotheses : ce sont les facons dont on a deja perdu de l'argent.
  */
-import { verifier, carnet, vendable, MULTIPLE_MINIMUM } from './app.js';
+import { verifier, carnet, vendable, adresseValide, MULTIPLE_MINIMUM } from './app.js';
 
 let echecs = 0;
 const verifie = (nom, condition) => {
@@ -127,6 +127,48 @@ verifie(
   'un carnet mort depuis 6 releves le dit',
   verifier(base({ verdict: { verdict: 'mort', phrase: 'aucune contrepartie', persistance: 6 } }))
     .some((r) => r.includes('depuis 6 releves')),
+);
+
+// --- Le champ qui decide OU sont les fonds -------------------------------
+verifie('vide -> derivation automatique', adresseValide('') === null);
+verifie('espaces seuls -> derivation automatique', adresseValide('   ') === null);
+verifie('adresse valide acceptee et nettoyee',
+  adresseValide('  0xa53f836A69eB09D48160D2A992c209d2e164F0F4 ') === '0xa53f836A69eB09D48160D2A992c209d2e164F0F4');
+verifie('trop courte refusee', adresseValide('0xa53f836A') === false);
+verifie('sans prefixe 0x refusee', adresseValide('a53f836A69eB09D48160D2A992c209d2e164F0F4') === false);
+verifie('caractere non hexadecimal refuse',
+  adresseValide('0xZ53f836A69eB09D48160D2A992c209d2e164F0F4') === false);
+verifie('trop longue refusee', adresseValide('0xa53f836A69eB09D48160D2A992c209d2e164F0F4aa') === false);
+
+// --- FAILLE XSS FERMEE LE 2026-08-27, verrouillee ici ---------------------
+// Les lignes de tableau etaient construites par `tr.innerHTML = ...` avec des
+// titres de marche venus de l'API. Sur une page connectee a un portefeuille,
+// une charge utile pouvait reecrire le formulaire d'ordre avant l'envoi : la
+// signature de l'utilisateur serait authentique, son CONTENU falsifie.
+//
+// Ce controle est STATIQUE a dessein. Un test de comportement passerait encore
+// si quelqu'un reintroduisait un `innerHTML` ailleurs dans le fichier ; ici on
+// interdit la construction elle-meme.
+import { readFileSync } from 'node:fs';
+import { fileURLToPath } from 'node:url';
+
+const source = readFileSync(fileURLToPath(new URL('./app.js', import.meta.url)), 'utf8');
+const sansCommentaires = source
+  .replace(/\/\*[\s\S]*?\*\//g, '')
+  .replace(/^[ \t]*\/\/.*$/gm, '');
+
+verifie(
+  'aucune affectation innerHTML dans le code',
+  !/\.innerHTML\s*=/.test(sansCommentaires),
+);
+verifie(
+  'aucun insertAdjacentHTML ni document.write',
+  !/insertAdjacentHTML|document\.write/.test(sansCommentaires),
+);
+verifie('aucun eval ni new Function', !/\beval\s*\(|new Function\s*\(/.test(sansCommentaires));
+verifie(
+  'le rendu passe par textContent',
+  /textContent\s*=/.test(sansCommentaires),
 );
 
 console.log(echecs ? `\n${echecs} verification(s) en echec` : '\ntoutes les verifications passent');

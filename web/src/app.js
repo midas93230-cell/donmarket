@@ -55,6 +55,9 @@ export const MULTIPLE_MINIMUM = 2;
 /** Verdicts sur lesquels on refuse d'engager de l'argent. */
 const VERDICTS_REFUSES = new Set(['mort', 'piege']);
 
+/** Jeu ferme de verdicts. Tout le reste est traite comme « inconnu ». */
+const VERDICTS_CONNUS = new Set(['tradable', 'efficient', 'desequilibre', 'lent', 'piege', 'mort']);
+
 /** Rafraichissement du carnet affiche, en millisecondes. */
 const PERIODE_CARNET = 15000;
 
@@ -71,6 +74,42 @@ const etat = {
 
 const $ = (id) => document.getElementById(id);
 const fmt = (n, d = 2) => (Number.isFinite(n) ? n.toFixed(d) : '—');
+
+/**
+ * Fabrique une cellule dont le contenu est du TEXTE, jamais du balisage.
+ *
+ * FAILLE TROUVEE ET FERMEE LE 2026-08-27. Les lignes de tableau etaient
+ * construites par `tr.innerHTML = \`<td>${p.title}</td>\`` : le titre d'un
+ * marche, l'issue d'une position et le verdict partaient BRUTS depuis l'API
+ * dans du balisage. Le verdict atterrissait meme dans un ATTRIBUT `class`.
+ *
+ * Sur une page connectee a un portefeuille, ce n'est pas un defaut cosmetique.
+ * Une charge utile dans un titre de marche pouvait reecrire le formulaire
+ * d'ordre AVANT l'envoi -- echanger le `tokenId` par exemple -- et l'utilisateur
+ * aurait signe dans son portefeuille un ordre qu'il ne voulait pas, en croyant
+ * valider le sien. La signature est authentique ; c'est son CONTENU qui aurait
+ * ete change.
+ *
+ * On ne corrige pas en echappant les chaines : on cesse d'utiliser `innerHTML`
+ * pour des donnees. `textContent` ne peut pas produire de balisage, quelle que
+ * soit l'entree. C'est une garantie du navigateur, pas une precaution de notre
+ * part qu'un futur oubli pourrait defaire.
+ */
+function cellule(texte, classe) {
+  const td = document.createElement('td');
+  if (classe) td.className = classe;
+  td.textContent = texte == null ? '' : String(texte);
+  return td;
+}
+
+/** Ligne « rien a afficher », sans donnee interpolee. */
+function ligneVide(corps, colonnes, message) {
+  const tr = document.createElement('tr');
+  const td = cellule(message, 'vide');
+  td.colSpan = colonnes;
+  tr.append(td);
+  corps.replaceChildren(tr);
+}
 
 /**
  * Deroule la chaine des causes d'une erreur.
@@ -203,6 +242,21 @@ export function verifier({ cote, prix, parts, carnet: c, marche: m, verdict }) {
  * On ne peut donc proposer que deux tailles sures : la position entiere si elle
  * peut se solder, ou une taille qui laisse au moins `minimum` derriere elle.
  */
+/**
+ * Une adresse EVM valide, ou `null`.
+ *
+ * Ce champ decide QUEL PORTEFEUILLE le client considere comme detenteur des
+ * fonds. Une saisie fautive n'est pas benigne : elle fait accepter l'ordre puis
+ * le rejeter pour solde insuffisant en pointant une adresse vide -- le piege du
+ * 2026-08-18, qui avait casse cinq routes. On refuse donc AVANT de construire
+ * le client, avec un message qui dit quoi corriger.
+ */
+export function adresseValide(saisie) {
+  const t = String(saisie ?? '').trim();
+  if (!t) return null;
+  return /^0x[0-9a-fA-F]{40}$/.test(t) ? t : false;
+}
+
 export function vendable(detenu, minimum) {
   if (!Number.isFinite(detenu) || detenu <= 0) {
     return { max: 0, refus: 'aucune part detenue' };
@@ -259,7 +313,16 @@ async function connecter() {
     // confondre les deux fait accepter l'ordre puis le rejeter pour solde
     // insuffisant, en pointant une adresse vide. Laisse vide pour que le SDK
     // derive le Deposit Wallet standard.
-    const proxy = ($('proxy')?.value || '').trim();
+    const proxy = adresseValide($('proxy')?.value);
+    if (proxy === false) {
+      dire(
+        "L'adresse saisie n'est pas une adresse EVM valide (0x suivi de 40 " +
+          'caracteres hexadecimaux). Laisse le champ vide pour que le portefeuille ' +
+          'de depot soit derive automatiquement.',
+        'erreur',
+      );
+      return;
+    }
     dire('Signature demandee pour deriver les identifiants CLOB…');
 
     // DEUX CLIENTS, ET C'EST LE COEUR DE L'AFFAIRE.
@@ -326,48 +389,55 @@ async function rafraichirPortefeuille() {
 
 function rendrePositions(positions) {
   const corps = $('positions');
-  corps.innerHTML = '';
+  corps.replaceChildren();
   if (!positions.length) {
-    corps.innerHTML = '<tr><td colspan="5" class="vide">aucune position</td></tr>';
+    ligneVide(corps, 5, 'aucune position');
     return;
   }
   for (const p of positions) {
     const taille = Number(p.size);
     const pnl = Number(p.cashPnl ?? p.cash_pnl ?? 0);
     const tr = document.createElement('tr');
-    tr.innerHTML =
-      `<td class="l">${(p.title || '').slice(0, 46)}<br><span class="note">${p.outcome || ''}</span></td>` +
-      `<td class="num">${fmt(taille, 2)}</td>` +
-      `<td class="num">${fmt(Number(p.avgPrice ?? p.avg_price), 3)}</td>` +
-      `<td class="num ${pnl >= 0 ? 'gain' : 'perte'}">${fmt(pnl)} $</td>`;
-    const cellule = document.createElement('td');
+    const titre = cellule(String(p.title || '').slice(0, 46), 'l');
+    const issue = document.createElement('span');
+    issue.className = 'note';
+    issue.textContent = p.outcome || '';
+    titre.append(document.createElement('br'), issue);
+    tr.append(
+      titre,
+      cellule(fmt(taille, 2), 'num'),
+      cellule(fmt(Number(p.avgPrice ?? p.avg_price), 3), 'num'),
+      cellule(`${fmt(pnl)} $`, `num ${pnl >= 0 ? 'gain' : 'perte'}`),
+    );
+    const celluleAction = document.createElement('td');
     const bouton = document.createElement('button');
     bouton.className = 'mini';
     bouton.textContent = 'Vendre';
     bouton.addEventListener('click', () => preparerVente(p));
-    cellule.append(bouton);
-    tr.append(cellule);
+    celluleAction.append(bouton);
+    tr.append(celluleAction);
     corps.append(tr);
   }
 }
 
 function rendreOrdres(ordres) {
   const corps = $('ordres');
-  corps.innerHTML = '';
+  corps.replaceChildren();
   if (!ordres.length) {
-    corps.innerHTML = '<tr><td colspan="5" class="vide">aucun ordre au carnet</td></tr>';
+    ligneVide(corps, 5, 'aucun ordre au carnet');
     return;
   }
   for (const o of ordres) {
     const total = Number(o.originalSize ?? o.original_size);
     const rempli = Number(o.sizeMatched ?? o.size_matched ?? 0);
     const tr = document.createElement('tr');
-    tr.innerHTML =
-      `<td class="l">${o.side}</td>` +
-      `<td class="num">${fmt(total, 2)}</td>` +
-      `<td class="num">${fmt(Number(o.price), 3)}</td>` +
-      `<td class="num">${fmt(rempli, 2)} / ${fmt(total, 2)}</td>`;
-    const cellule = document.createElement('td');
+    tr.append(
+      cellule(o.side, 'l'),
+      cellule(fmt(total, 2), 'num'),
+      cellule(fmt(Number(o.price), 3), 'num'),
+      cellule(`${fmt(rempli, 2)} / ${fmt(total, 2)}`, 'num'),
+    );
+    const celluleAction = document.createElement('td');
     const bouton = document.createElement('button');
     bouton.className = 'mini danger';
     bouton.textContent = 'Annuler';
@@ -407,24 +477,33 @@ async function annuler(ordre, rempli, total) {
 
 function rendreListe(filtre = '') {
   const corps = $('marches');
-  corps.innerHTML = '';
+  corps.replaceChildren();
   const f = filtre.trim().toLowerCase();
   const choix = etat.lignes
     .filter((l) => l.verdict === 'tradable' || l.verdict === 'efficient')
     .filter((l) => !f || l.question.toLowerCase().includes(f) || l.slug.includes(f))
     .slice(0, 80);
   if (!choix.length) {
-    corps.innerHTML = '<tr><td colspan="5" class="vide">aucun marche</td></tr>';
+    ligneVide(corps, 5, 'aucun marche');
     return;
   }
   for (const l of choix) {
     const tr = document.createElement('tr');
-    tr.innerHTML =
-      `<td class="l">${l.question.slice(0, 52)}</td>` +
-      `<td class="num">${l.volume24h.toLocaleString('fr-FR', { maximumFractionDigits: 0 })}</td>` +
-      `<td class="num">${fmt(l.bid, 3)} / ${fmt(l.ask, 3)}</td>` +
-      `<td class="num">${l.persistance ?? 1}</td>` +
-      `<td><span class="pastille ${l.verdict}">${l.verdict}</span></td>`;
+    const pastille = document.createElement('span');
+    // Le verdict vient de nos donnees mais atterrissait dans un ATTRIBUT class.
+    // On le contraint a un jeu ferme : une valeur inattendue devient « inconnu »
+    // au lieu de s'ecrire telle quelle dans le balisage.
+    pastille.className = `pastille ${VERDICTS_CONNUS.has(l.verdict) ? l.verdict : 'inconnu'}`;
+    pastille.textContent = l.verdict;
+    const cVerdict = document.createElement('td');
+    cVerdict.append(pastille);
+    tr.append(
+      cellule(String(l.question).slice(0, 52), 'l'),
+      cellule(l.volume24h.toLocaleString('fr-FR', { maximumFractionDigits: 0 }), 'num'),
+      cellule(`${fmt(l.bid, 3)} / ${fmt(l.ask, 3)}`, 'num'),
+      cellule(l.persistance ?? 1, 'num'),
+      cVerdict,
+    );
     tr.style.cursor = 'pointer';
     tr.addEventListener('click', () => {
       $('slug').value = l.slug;

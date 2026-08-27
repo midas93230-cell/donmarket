@@ -3,6 +3,44 @@
   <head>
     <meta charset="utf-8" />
     <meta name="viewport" content="width=device-width, initial-scale=1" />
+    <!--
+      DÉFENSE EN PROFONDEUR. Le 27 août 2026, une faille XSS a été trouvée et
+      fermée dans cette page : des titres de marché venus de l'API partaient
+      bruts dans `innerHTML`. Sur une page connectée à un portefeuille, une
+      charge utile pouvait réécrire le formulaire d'ordre avant l'envoi — la
+      signature de l'utilisateur aurait été authentique, son contenu falsifié.
+
+      Le code ne construit plus aucun balisage à partir de données. Cette CSP
+      est la seconde barrière : même si un `innerHTML` réapparaissait un jour,
+      un script injecté ne pourrait ni s'exécuter (`script-src 'self'`) ni
+      exfiltrer quoi que ce soit (`connect-src` limité aux hôtes réellement
+      appelés). `object-src 'none'` et `base-uri 'none'` ferment deux
+      contournements classiques ; `form-action 'none'` interdit d'exfiltrer par
+      soumission de formulaire.
+
+      GitHub Pages ne permet pas d'envoyer d'en-têtes : la balise `meta` est le
+      seul véhicule disponible. Elle couvre tout sauf `frame-ancestors`, qui
+      exige un vrai en-tête — le clickjacking reste donc à couvrir si cette
+      page passe un jour derrière un hébergeur qui les autorise.
+    -->
+    <meta
+      http-equiv="Content-Security-Policy"
+      content="default-src 'none';
+               script-src 'self';
+               style-src 'self' 'unsafe-inline';
+               img-src 'self' data:;
+               font-src 'self';
+               connect-src 'self'
+                 https://clob.polymarket.com
+                 https://gamma-api.polymarket.com
+                 https://data-api.polymarket.com
+                 https://relayer-v2.polymarket.com
+                 https://donmarket-signer.midas93230.workers.dev;
+               object-src 'none';
+               base-uri 'none';
+               form-action 'none';
+               frame-src 'none'"
+    />
     <title>DONmarket — trader Polymarket</title>
     <meta
       name="description"
