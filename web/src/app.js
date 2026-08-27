@@ -387,7 +387,7 @@ async function rafraichirPortefeuille() {
   }
 }
 
-function rendrePositions(positions) {
+export function rendrePositions(positions) {
   const corps = $('positions');
   corps.replaceChildren();
   if (!positions.length) {
@@ -420,7 +420,7 @@ function rendrePositions(positions) {
   }
 }
 
-function rendreOrdres(ordres) {
+export function rendreOrdres(ordres) {
   const corps = $('ordres');
   corps.replaceChildren();
   if (!ordres.length) {
@@ -442,8 +442,8 @@ function rendreOrdres(ordres) {
     bouton.className = 'mini danger';
     bouton.textContent = 'Annuler';
     bouton.addEventListener('click', () => annuler(o, rempli, total));
-    cellule.append(bouton);
-    tr.append(cellule);
+    celluleAction.append(bouton);
+    tr.append(celluleAction);
     corps.append(tr);
   }
 }
@@ -506,7 +506,7 @@ export function composition(lignes) {
   });
 }
 
-function rendreComposition(lignes) {
+export function rendreComposition(lignes) {
   const parts = composition(lignes);
   const bande = $('bande');
   const legende = $('legende');

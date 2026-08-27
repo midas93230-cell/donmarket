@@ -5,7 +5,7 @@
   "description": "Application web DONmarket : passer un ordre Polymarket sans installer Python.",
   "scripts": {
     "build": "node node_modules/esbuild/bin/esbuild src/app.js --bundle --format=esm --target=es2022 --minify --outfile=../docs/app.js",
-    "test": "node src/app.test.mjs"
+    "test": "node src/app.test.mjs && node src/rendu.test.mjs"
   },
   "dependencies": {
     "@polymarket/client": "^0.6.0",
