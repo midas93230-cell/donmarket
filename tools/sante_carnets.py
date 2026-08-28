@@ -214,9 +214,41 @@ def relever(session, nb_marches: int) -> list[dict]:
             "prof_bid": pb, "prof_ask": pa,
             "volume24h": float(m.get("volume24hr") or 0),
             "ticket_min": taille_min * (bid or 0),
+            "tick": float(m.get("orderPriceMinTickSize") or 0.01),
             "verdict": code, "phrase": phrase,
         })
     return lignes
+
+
+def loi_du_tick(lignes: list[dict]) -> dict:
+    """La regle centrale de ce projet, RECALCULEE a chaque mesure.
+
+    Elle a longtemps ete publiee comme absolue (« wherever there is volume, the
+    spread is exactly one tick, without a single exception »). Verifie le
+    2026-08-28 sur les carnets vivants a plus de 50 000 $/jour : c'est vrai a
+    78 % quand le tick vaut 0,01, et a 43 % seulement quand il vaut 0,001 --
+    c'est-a-dire sur le sport, ou la queue monte a SOIXANTE ticks.
+
+    Relire ces carnets-la en direct explique l'ecart : bid a 0,999 et aucun ask.
+    Ce sont des matchs en cours ou deja joues. L'intuition tenait, sa raison
+    non : ce n'est pas « personne ne trade ce marche », c'est « ce marche est
+    deja decide ».
+
+    On ne reecrit donc pas la phrase a la main : on publie le chiffre du jour.
+    Une regle qu'on republie sans la remesurer finit toujours par mentir.
+    """
+    vivants = [l for l in lignes
+               if l["verdict"] in ("tradable", "efficient")
+               and l["bid"] and l["ask"] and l["volume24h"] > 50000]
+    par_tick = {}
+    for l in vivants:
+        t = l.get("tick") or 0.01
+        n = round((l["ask"] - l["bid"]) / t)
+        d = par_tick.setdefault(t, {"total": 0, "un": 0, "max": 0})
+        d["total"] += 1
+        d["un"] += 1 if n == 1 else 0
+        d["max"] = max(d["max"], n)
+    return par_tick
 
 
 def page(lignes: list[dict], style: str) -> str:
@@ -280,16 +312,32 @@ def page(lignes: list[dict], style: str) -> str:
   .cta .go{display:inline-block;padding:10px 18px;border:1px solid var(--teal);
        border-radius:8px;text-decoration:none;font-weight:600}
 """
+    loi = loi_du_tick(lignes)
+    morceaux = []
+    for t in sorted(loi):
+        d = loi[t]
+        if not d["total"]:
+            continue
+        morceaux.append(
+            f"where the tick is {t:g}, {d['un']} of {d['total']} live books "
+            f"({100 * d['un'] // d['total']} %) sit at exactly one tick "
+            f"(widest: {d['max']})"
+        )
+    phrase_loi = (
+        "Measured today on books above $50k a day: " + "; ".join(morceaux) + "."
+        if morceaux else
+        "Not enough live books today to state the rule."
+    )
     return f"""<title>Polymarket Book Health</title>
-<meta name="description" content="Every Polymarket book read from the CLOB and judged on spread, volume, depth on both sides and minimum ticket. Wherever there is volume, the spread is exactly one tick." />
+<meta name="description" content="Every Polymarket book read from the CLOB and judged on spread, volume, depth on both sides and minimum ticket. Where the tick is 0.01, most live books sit at exactly one tick. Where it is 0.001, they do not." />
 <meta property="og:type" content="website" />
 <meta property="og:site_name" content="DONmarket" />
 <meta property="og:url" content="https://midas93230-cell.github.io/donmarket/health.html" />
 <meta property="og:title" content="Polymarket Book Health — which books are actually alive" />
-<meta property="og:description" content="Every Polymarket book read from the CLOB and judged on spread, volume, depth on both sides and minimum ticket. Wherever there is volume, the spread is exactly one tick." />
+<meta property="og:description" content="Every Polymarket book read from the CLOB and judged on spread, volume, depth on both sides and minimum ticket. Where the tick is 0.01, most live books sit at exactly one tick. Where it is 0.001, they do not." />
 <meta name="twitter:card" content="summary" />
 <meta name="twitter:title" content="Polymarket Book Health — which books are actually alive" />
-<meta name="twitter:description" content="Every Polymarket book read from the CLOB and judged on spread, volume, depth on both sides and minimum ticket. Wherever there is volume, the spread is exactly one tick." />
+<meta name="twitter:description" content="Every Polymarket book read from the CLOB and judged on spread, volume, depth on both sides and minimum ticket. Where the tick is 0.01, most live books sit at exactly one tick. Where it is 0.001, they do not." />
 <style>{style}{extra}</style>
 <div class="wrap">
   <header class="stack masthead">
@@ -300,7 +348,7 @@ def page(lignes: list[dict], style: str) -> str:
   </header>
 
   <div class="callout">
-    <p><b>The rule this page exists to make visible.</b> Measured across six markets at the same instant: wherever there is volume, the spread is one tick; the only wide spread sat on the market nobody trades. A wide spread is not an opportunity waiting to be spotted &mdash; it is the price of having no counterparty. Sorting by spread finds traps, not edges.</p>
+    <p><b>The rule this page exists to make visible, and its limit.</b> {phrase_loi} Reading the widest of them live explains the gap: a bid at 0.999 and no ask at all &mdash; matches in progress or already decided. So a wide spread still means no counterparty. It just does not always mean nobody trades it. Sorting by spread finds traps, not edges.</p>
   </div>
 
   <div class="thesis">{tuiles}</div>
