@@ -258,6 +258,9 @@ def page(lignes: list[dict], style: str) -> str:
         )
 
     extra = """
+  .t{padding-right:18px}
+  .t .n{font-weight:700;margin-right:.4em}
+  .t p{margin:.35rem 18px .1rem 0}
   .t.tradable .n{color:var(--teal)} .t.efficient .n{color:var(--ink)}
   .t.piege .n{color:var(--brass)} .t.mort .n{color:var(--alarm)}
   tr.tradable td:first-child{border-left:3px solid var(--teal)}

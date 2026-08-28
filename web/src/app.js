@@ -246,10 +246,10 @@ export function avertir({ cote, prix, parts, carnet: c }) {
   const reference = cote === 'BUY' ? c.ask : c.bid;
   const cout = coutPreneur(parts, prix);
   avis.push(
-    `${cote === 'BUY' ? 'Achat' : 'Vente'} a ${prix} : l'ordre traverse l'ecart ` +
-      `(${cote === 'BUY' ? 'ask' : 'bid'} ${reference}) et se remplit tout de suite. ` +
-      `Tu paies les frais de preneur : ${cout.toFixed(4).replace('.', ',')} $ ` +
-      `sur ${(parts * prix).toFixed(2).replace('.', ',')} $ engages.`,
+    `${cote === 'BUY' ? 'Buy' : 'Sell'} at ${prix}: this order crosses the spread ` +
+      `(${cote === 'BUY' ? 'ask' : 'bid'} ${reference}) and fills immediately. ` +
+      `You pay the taker fee: $${cout.toFixed(4)} ` +
+      `on $${(parts * prix).toFixed(2)} committed.`,
   );
   return avis;
 }
@@ -258,28 +258,28 @@ export function verifier({ cote, prix, parts, carnet: c, marche: m, verdict }) {
   const refus = [];
 
   if (verdict && VERDICTS_REFUSES.has(verdict.verdict)) {
-    const depuis = verdict.persistance > 1 ? ` depuis ${verdict.persistance} releves` : '';
-    refus.push(`Carnet « ${verdict.verdict} »${depuis} : ${verdict.phrase}`);
+    const depuis = verdict.persistance > 1 ? ` for ${verdict.persistance} runs` : '';
+    refus.push(`Book "${verdict.verdict}"${depuis} : ${verdict.phrase}`);
   }
   if (!Number.isFinite(prix) || prix <= 0 || prix >= 1) {
-    refus.push('Le prix doit tenir strictement entre 0 et 1.');
+    refus.push('The price must sit strictly between 0 and 1.');
   } else {
     const reste = Math.abs(prix / m.tick - Math.round(prix / m.tick));
-    if (reste > 1e-6) refus.push(`Le prix doit etre un multiple du tick (${m.tick}).`);
+    if (reste > 1e-6) refus.push(`The price must be a multiple of the tick (${m.tick}).`);
   }
   if (!Number.isFinite(parts) || parts <= 0) {
-    refus.push('La taille doit etre un nombre positif.');
+    refus.push('The size must be a positive number.');
   } else if (parts < MULTIPLE_MINIMUM * m.minimum) {
     refus.push(
-      `Engager au moins ${MULTIPLE_MINIMUM * m.minimum} parts ` +
-        `(2 x le minimum de ${m.minimum}) : sinon un remplissage a 50 % ` +
-        `laisse un reliquat sous le minimum, donc invendable.`,
+      `Commit at least ${MULTIPLE_MINIMUM * m.minimum} shares ` +
+        `(2 x the ${m.minimum} minimum): otherwise a 50 % fill ` +
+        `strands a remainder below the minimum, which cannot be sold.`,
     );
   }
   if (cote === 'SELL' && c.ask !== null && prix > c.ask) {
     refus.push(
-      `Vente a ${prix} au-dessus du meilleur ask (${c.ask}) : hors marche, ` +
-        `elle ne peut pas se remplir.`,
+      `Sell at ${prix} above the best ask (${c.ask}): out of market, ` +
+        `it cannot fill.`,
     );
   }
   return refus;
@@ -391,7 +391,7 @@ export function estPanneReseau(message) {
 
 async function connecter() {
   if (!window.ethereum) {
-    dire('Aucun portefeuille detecte. Installe MetaMask ou equivalent.', 'erreur');
+    dire('No wallet detected. Install MetaMask or an equivalent.', 'erreur');
     return;
   }
   if (!etat.config) {
@@ -483,7 +483,7 @@ async function connecter() {
     });
     $('adresse').textContent = `${adresse.slice(0, 6)}…${adresse.slice(-4)}`;
     $('connecter').disabled = true;
-    dire(`Connecte : ${adresse}`, 'ok');
+    dire(`Connected: ${adresse}`, 'ok');
     await rafraichirPortefeuille();
   } catch (e) {
     const detail = causes(e);
@@ -493,7 +493,7 @@ async function connecter() {
         'erreur',
       );
     } else {
-      dire(`Connexion refusee : ${detail}`, 'erreur');
+      dire(`Connection refused: ${detail}`, 'erreur');
     }
   }
 }
@@ -506,7 +506,7 @@ async function rafraichirPortefeuille() {
     // brut donnerait « 10468585 $ » et ferait croire a une fortune.
     $('solde').textContent = `${fmt(Number(solde.balance) / 1e6)} $`;
   } catch (e) {
-    dire(`Solde illisible : ${causes(e)}`, 'erreur');
+    dire(`Balance unreadable: ${causes(e)}`, 'erreur');
   }
   try {
     const positions = (await toutes(etat.client.listPositions({}))).filter(
@@ -514,12 +514,12 @@ async function rafraichirPortefeuille() {
     );
     rendrePositions(positions);
   } catch (e) {
-    dire(`Positions illisibles : ${causes(e)}`, 'erreur');
+    dire(`Positions unreadable: ${causes(e)}`, 'erreur');
   }
   try {
     rendreOrdres(await toutes(etat.client.listOpenOrders()));
   } catch (e) {
-    dire(`Ordres illisibles : ${causes(e)}`, 'erreur');
+    dire(`Orders unreadable: ${causes(e)}`, 'erreur');
   }
 }
 
@@ -596,16 +596,16 @@ async function annuler(ordre, rempli, total) {
           `d'ordre : elles deviendraient invendables. Annuler quand meme ?`,
       )
     ) {
-      dire('Annulation abandonnee — le reliquat serait invendable.', 'ok');
+      dire('Cancellation abandoned — the remainder would be unsellable.', 'ok');
       return;
     }
   }
   try {
     await etat.client.cancelOrder({ orderId: ordre.id });
-    dire(`Ordre annule : ${ordre.side} ${total} @ ${ordre.price}`, 'ok');
+    dire(`Order cancelled: ${ordre.side} ${total} @ ${ordre.price}`, 'ok');
     await rafraichirPortefeuille();
   } catch (e) {
-    dire(`Annulation refusee : ${causes(e)}`, 'erreur');
+    dire(`Cancellation refused: ${causes(e)}`, 'erreur');
   }
 }
 
@@ -742,7 +742,7 @@ async function rafraichirCarnet() {
     clearInterval(etat.minuteur);
     etat.minuteur = setInterval(rafraichirCarnetSilencieux, PERIODE_CARNET);
   } catch (e) {
-    dire(`Lecture du carnet impossible : ${e.message || e}`, 'erreur');
+    dire(`Could not read the book: ${e.message || e}`, 'erreur');
   }
 }
 
@@ -762,10 +762,10 @@ async function preparerVente(position) {
   const detenu = Number(position.size);
   const v = vendable(detenu, minimum);
   if (v.refus) {
-    dire(`Vente impossible — ${v.refus}`, 'erreur');
+    dire(`Cannot sell — ${v.refus}`, 'erreur');
     return;
   }
-  if (v.avertissement) dire(`Attention — ${v.avertissement}`, 'erreur');
+  if (v.avertissement) dire(`Warning — ${v.avertissement}`, 'erreur');
   $('slug').value = position.slug || '';
   $('cote').value = 'SELL';
   $('parts').value = String(v.max);
@@ -778,8 +778,8 @@ async function preparerVente(position) {
 /* ================================================================= ordre == */
 
 async function poser() {
-  if (!etat.marche) return dire("Charge d'abord un marche.", 'erreur');
-  if (!etat.client) return dire('Connecte un portefeuille.', 'erreur');
+  if (!etat.marche) return dire('Load a market first.', 'erreur');
+  if (!etat.client) return dire('Connect a wallet.', 'erreur');
 
   const cote = $('cote').value;
   const prix = Number($('prix').value);
@@ -793,13 +793,13 @@ async function poser() {
   try {
     c = await carnet(m.tokens[m.issue]);
   } catch (e) {
-    return dire(`Carnet illisible, rien envoye : ${e.message || e}`, 'erreur');
+    return dire(`Book unreadable, nothing sent: ${e.message || e}`, 'erreur');
   }
 
   const contexte = { cote, prix, parts, carnet: c, marche: m, verdict: etat.sante.get(m.slug) };
   const refus = verifier(contexte);
   if (refus.length) {
-    for (const r of refus) dire(`REFUSE — ${r}`, 'erreur');
+    for (const r of refus) dire(`REFUSED — ${r}`, 'erreur');
     etat.confirme = null;
     return;
   }
@@ -810,14 +810,14 @@ async function poser() {
   const avis = avertir(contexte);
   const signature = signatureOrdre({ cote, prix, parts, tokenId: m.tokens[m.issue] });
   if (avis.length && etat.confirme !== signature) {
-    for (const a of avis) dire(`ATTENTION — ${a}`, 'erreur');
-    dire('Renvoie exactement le meme ordre pour confirmer.', 'erreur');
+    for (const a of avis) dire(`WARNING — ${a}`, 'erreur');
+    dire('Send exactly the same order again to confirm.', 'erreur');
     etat.confirme = signature;
     return;
   }
   etat.confirme = null;
 
-  dire(`Envoi : ${cote} ${parts} @ ${prix} (${fmt(parts * prix)} $)…`);
+  dire(`Sending: ${cote} ${parts} @ ${prix} (${fmt(parts * prix)} $)…`);
   try {
     const reponse = await (etat.builder || etat.client).placeLimitOrder({
       tokenId: m.tokens[m.issue],
@@ -831,10 +831,10 @@ async function poser() {
       // annonce et confirme -- il n'a plus a etre empeche.
       postOnly: !preneur,
     });
-    dire(`Accepte — ${reponse.orderId || reponse.status || 'ok'}`, 'ok');
+    dire(`Accepted — ${reponse.orderId || reponse.status || 'ok'}`, 'ok');
     await rafraichirPortefeuille();
   } catch (e) {
-    dire(`Refuse par le CLOB : ${causes(e)}`, 'erreur');
+    dire(`Refused by the CLOB: ${causes(e)}`, 'erreur');
   }
 }
 
@@ -852,7 +852,7 @@ async function chargerConfig() {
 
 async function demarrer() {
   etat.config = await chargerConfig();
-  if (!etat.config) dire('app-config.json absent : consultation seule.', 'erreur');
+  if (!etat.config) dire('app-config.json missing: read-only mode.', 'erreur');
   try {
     const r = await fetch(SANTE_URL, { cache: 'no-store' });
     etat.lignes = await r.json();
@@ -878,7 +878,7 @@ async function demarrer() {
     rendreComposition(etat.lignes);
     rendreListe();
   } catch (e) {
-    dire(`Verdicts indisponibles : ${e.message || e}`, 'erreur');
+    dire(`Verdicts unavailable: ${e.message || e}`, 'erreur');
   }
   $('connecter').addEventListener('click', connecter);
 

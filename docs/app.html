@@ -1,5 +1,5 @@
 <!doctype html>
-<html lang="fr">
+<html lang="en">
   <head>
     <meta charset="utf-8" />
     <meta name="viewport" content="width=device-width, initial-scale=1" />
@@ -43,10 +43,10 @@
                form-action 'none';
                frame-src 'none'"
     />
-    <title>DONmarket — l'interface qui refuse vos ordres</title>
+    <title>DONmarket — the interface that refuses your orders</title>
     <meta
       name="description"
-      content="789 carnets Polymarket mesurés chaque jour. Une interface de trading qui refuse les carnets morts, les tailles invendables et les ordres hors marché — et qui dit pourquoi."
+      content="Every Polymarket book measured daily. A trading interface that refuses dead books, unsellable sizes and out-of-market orders — and tells you why."
     />
     <style>
       /*
@@ -502,44 +502,44 @@
       <header class="bandeau">
         <h1 class="marque">DONmarket <span>· Polymarket</span></h1>
         <p class="accroche">
-          Une interface de trading qui <strong>refuse vos ordres</strong> — et
-          qui dit pourquoi. Votre clé ne quitte jamais votre portefeuille.
+          A trading interface that <strong>refuses your orders</strong> — and
+          tells you why. Your key never leaves your wallet.
         </p>
       </header>
 
       <section class="heros">
         <p class="constat">
-          Là où il y a du volume, l'écart vaut <em>exactement un tick</em>.
-          Un écart plus large n'est pas une occasion : c'est l'absence de
-          contrepartie.
+          Wherever there is volume, the spread is <em>exactly one tick</em>.
+          A wider spread is not an opportunity: it is the absence of a
+          counterparty.
         </p>
-        <p class="source" id="mesure">chargement des mesures…</p>
+        <p class="source" id="mesure">loading measurements…</p>
         <div class="bande" id="bande" aria-hidden="true"></div>
         <ul class="legende" id="legende"></ul>
       </section>
 
       <section class="carte">
         <h2>
-          <span>Portefeuille</span>
-          <button id="rafraichir" class="mini">Rafraîchir</button>
+          <span>Wallet</span>
+          <button id="rafraichir" class="mini">Refresh</button>
         </h2>
         <div class="rangee">
-          <div><button id="connecter" class="principal">Connecter</button></div>
+          <div><button id="connecter" class="principal">Connect</button></div>
           <div>
-            <label>Adresse</label>
-            <div id="adresse" class="note n">non connecté</div>
+            <label>Address</label>
+            <div id="adresse" class="note n">not connected</div>
           </div>
           <div>
-            <label>Disponible</label>
+            <label>Available</label>
             <div id="solde" class="chiffre">—</div>
           </div>
         </div>
         <div style="margin-top: 1rem">
           <label for="proxy">
-            Adresse détenant les fonds — laissez vide, elle est dérivée
-            automatiquement
+            Address holding the funds — leave empty, it is derived
+            automatically
           </label>
-          <input id="proxy" class="n" placeholder="0x… (facultatif)" />
+          <input id="proxy" class="n" placeholder="0x… (optional)" />
         </div>
       </section>
 
@@ -550,35 +550,35 @@
             <table>
               <thead>
                 <tr>
-                  <th>Marché</th>
-                  <th>Parts</th>
-                  <th>Prix moyen</th>
+                  <th>Market</th>
+                  <th>Shares</th>
+                  <th>Avg price</th>
                   <th>P&amp;L</th>
                   <th><span class="note">action</span></th>
                 </tr>
               </thead>
               <tbody id="positions">
-                <tr><td colspan="5" class="vide">connectez un portefeuille</td></tr>
+                <tr><td colspan="5" class="vide">connect a wallet</td></tr>
               </tbody>
             </table>
           </div>
         </section>
 
         <section class="carte">
-          <h2>Ordres au carnet</h2>
+          <h2>Resting orders</h2>
           <div class="tableau">
             <table>
               <thead>
                 <tr>
-                  <th>Côté</th>
-                  <th>Parts</th>
-                  <th>Prix</th>
-                  <th>Rempli</th>
+                  <th>Side</th>
+                  <th>Shares</th>
+                  <th>Price</th>
+                  <th>Filled</th>
                   <th><span class="note">action</span></th>
                 </tr>
               </thead>
               <tbody id="ordres">
-                <tr><td colspan="5" class="vide">connectez un portefeuille</td></tr>
+                <tr><td colspan="5" class="vide">connect a wallet</td></tr>
               </tbody>
             </table>
           </div>
@@ -587,117 +587,119 @@
 
       <section class="carte">
         <h2>
-          <span>Marchés mesurés</span>
-          <span class="discret">cliquez une ligne pour la charger</span>
+          <span>Measured markets</span>
+          <span class="discret">click a row to load it</span>
         </h2>
-        <input id="filtre" placeholder="filtrer : bitcoin, iran, premier league…" />
+        <input id="filtre" placeholder="filter: bitcoin, iran, premier league…" />
         <div class="tableau" style="margin-top: 0.9rem; max-height: 24rem; overflow-y: auto">
           <table>
             <thead>
               <tr>
-                <th>Marché</th>
-                <th>Volume 24 h</th>
+                <th>Market</th>
+                <th>24h volume</th>
                 <th>Bid / Ask</th>
-                <th>Relevés</th>
+                <th>Runs</th>
                 <th>Verdict</th>
               </tr>
             </thead>
             <tbody id="marches">
-              <tr><td colspan="5" class="vide">chargement…</td></tr>
+              <tr><td colspan="5" class="vide">loading…</td></tr>
             </tbody>
           </table>
         </div>
       </section>
 
       <section class="carte" id="ticket">
-        <h2><span>Ordre</span><span id="vif" class="discret n"></span></h2>
+        <h2><span>Order</span><span id="vif" class="discret n"></span></h2>
         <div class="rangee">
           <div style="grid-column: span 2">
-            <label for="slug">Slug du marché</label>
+            <label for="slug">Market slug</label>
             <input id="slug" class="n" placeholder="will-russia-invade-another-country-in-2026" />
           </div>
           <div>
-            <label for="issue">Issue</label>
+            <label for="issue">Outcome</label>
             <select id="issue">
-              <option value="0">première (Yes)</option>
-              <option value="1">seconde (No)</option>
+              <option value="0">first (Yes)</option>
+              <option value="1">second (No)</option>
             </select>
           </div>
-          <div><button id="charger">Lire le carnet</button></div>
+          <div><button id="charger">Read the book</button></div>
         </div>
-        <pre id="carnet">Aucun marché chargé.</pre>
+        <pre id="carnet">No market loaded.</pre>
         <p style="margin: 0.8rem 0 0"><span id="verdict" class="pastille">—</span></p>
 
         <div class="rangee" style="margin-top: 1.1rem">
           <div>
-            <label for="cote">Côté</label>
+            <label for="cote">Side</label>
             <select id="cote">
-              <option value="BUY">Acheter</option>
-              <option value="SELL">Vendre</option>
+              <option value="BUY">Buy</option>
+              <option value="SELL">Sell</option>
             </select>
           </div>
           <div>
-            <label for="prix">Prix</label>
+            <label for="prix">Price</label>
             <input id="prix" class="n" type="number" step="0.001" min="0" max="1" placeholder="0.14" />
           </div>
           <div>
-            <label for="parts">Parts</label>
+            <label for="parts">Shares</label>
             <input id="parts" class="n" type="number" step="1" min="0" placeholder="10" />
           </div>
-          <div><button id="poser" class="principal">Poser l'ordre</button></div>
+          <div><button id="poser" class="principal">Place the order</button></div>
         </div>
         <p class="note" style="margin-top: 0.9rem">
-          L'ordre part en <code>post-only</code> : il est refusé plutôt que de
-          traverser l'écart et de payer les frais de preneur.
+          An order that rests on the book is sent <code>post-only</code>, so it
+          can never cross the spread by accident. An order that deliberately
+          crosses is allowed — you are told the exact fee first, and asked to
+          send it a second time.
         </p>
       </section>
 
       <section class="carte">
-        <h2>Journal</h2>
+        <h2>Log</h2>
         <div id="journal"></div>
       </section>
 
       <section class="carte">
-        <h2>Ce que cette page refuse, et pourquoi</h2>
+        <h2>What this page refuses, and why</h2>
         <ul class="refus">
           <li>
-            <b>Carnet mort ou piège</b>
-            Un écart large sur un marché sans volume paie sur le papier et ne se
-            remplit jamais. Mesuré sur l'ensemble des carnets, chaque jour.
+            <b>Dead or trapped book</b>
+            A wide spread on a market with no volume pays on paper and never
+            fills. Measured across every book, every day.
           </li>
           <li>
-            <b>Taille au minimum exact</b>
-            Un remplissage partiel laisse un reliquat sous le minimum d'ordre,
-            donc invendable. Ce piège a coûté deux fois : à l'achat, puis à la
-            vente, où il est resté 1,74 part sous un minimum de 5.
+            <b>Size at exactly the minimum</b>
+            A partial fill leaves a remainder below the minimum order size, so
+            it cannot be sold. This trap cost us twice: once buying, then again
+            selling, where 1.74 shares were stranded under a minimum of 5.
           </li>
           <li>
-            <b>Vente au-dessus du meilleur ask</b>
-            Hors marché : elle ne peut pas se remplir, quel que soit le temps
-            qu'elle attend.
+            <b>Sell above the best ask</b>
+            Out of market: it cannot fill, however long it waits.
           </li>
           <li>
-            <b>Ordre qui traverse l'écart</b>
-            Vous devenez preneur et payez les frais qu'un teneur évite.
+            <b>Cancellation that strands a remainder</b>
+            Cancelling a partially filled sell can leave less than the minimum
+            order size. The page says so before, not after.
           </li>
           <li>
-            <b>Annulation qui piège un reliquat</b>
-            Annuler une vente partiellement remplie peut laisser moins que le
-            minimum d'ordre. La page le dit avant, pas après.
-          </li>
-          <li>
-            <b>Adresse de fonds invalide</b>
-            Une saisie fautive fait accepter l'ordre puis le rejeter pour solde
-            insuffisant, en pointant une adresse vide.
+            <b>Invalid funding address</b>
+            A typo gets the order accepted, then rejected for insufficient
+            balance, pointing at an empty address.
           </li>
         </ul>
+        <p class="note" style="margin-top: 0.9rem">
+          One thing it no longer refuses: an order that crosses the spread. It
+          is warned about and priced — you see the taker fee in dollars before
+          confirming — because refusing it outright decided for you.
+        </p>
       </section>
 
       <footer>
-        La colonne <strong>Relevés</strong> indique depuis combien de mesures
-        quotidiennes consécutives un marché porte le même verdict. Ce chiffre ne
-        se reconstitue pas rétroactivement : il faut avoir mesuré jour après
-        jour. C'est la seule chose ici qu'un concurrent ne peut pas rattraper.
+        The <strong>Runs</strong> column counts how many consecutive daily
+        measurements a market has held the same verdict. That number cannot be
+        backfilled: it exists only because the books have been measured day
+        after day. It is the one thing here a competitor cannot catch up on.
       </footer>
     </main>
     <script type="module" src="./app.js"></script>

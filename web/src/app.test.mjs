@@ -26,7 +26,7 @@ verifie('un achat sain a 0,14 pour 25 parts est accepte', verifier(base()).lengt
 // --- 2026-08-24 : le minimum EXACT rend l'execution partielle irreversible
 verifie(
   'refuse 5 parts quand le minimum est 5',
-  contient(verifier(base({ parts: 5 })), 'au moins 10 parts'),
+  contient(verifier(base({ parts: 5 })), 'at least 10 shares'),
 );
 verifie('accepte exactement 2 x le minimum', verifier(base({ parts: 10 })).length === 0);
 verifie('refuse 9 parts, juste sous la regle', verifier(base({ parts: 9 })).length > 0);
@@ -35,7 +35,7 @@ verifie('la regle est bien de deux fois le minimum', MULTIPLE_MINIMUM === 2);
 // --- 2026-08-25 : une vente au-dessus de l'ask ne se remplit jamais -------
 verifie(
   'refuse une vente au-dessus du meilleur ask',
-  contient(verifier(base({ cote: 'SELL', prix: 0.25 })), 'au-dessus du meilleur ask'),
+  contient(verifier(base({ cote: 'SELL', prix: 0.25 })), 'above the best ask'),
 );
 verifie(
   'accepte une vente a 0,17, juste sous l ask',
@@ -69,13 +69,13 @@ verifie('le taux preneur mesure est bien 10 bps', TAUX_PRENEUR === 0.001);
 verifie('25 parts a 0,18 coutent 0,0045 $ de frais',
   Math.abs(coutPreneur(25, 0.18) - 0.0045) < 1e-9);
 
-verifie('un achat preneur est AVERTI', contient(avertir(base({ prix: 0.18 })), "traverse l'ecart"));
+verifie('un achat preneur est AVERTI', contient(avertir(base({ prix: 0.18 })), 'crosses the spread'));
 verifie('l avertissement chiffre les frais',
-  contient(avertir(base({ prix: 0.18 })), '0,0045'));
+  contient(avertir(base({ prix: 0.18 })), '$0.0045'));
 verifie('un ordre teneur ne declenche aucun avertissement',
   avertir(base()).length === 0);
 verifie('une vente preneuse est AVERTIE',
-  contient(avertir(base({ cote: 'SELL', prix: 0.13 })), "traverse l'ecart"));
+  contient(avertir(base({ cote: 'SELL', prix: 0.13 })), 'crosses the spread'));
 
 // La confirmation d'un ordre preneur : deux clics identiques, pas de modale
 // (une boite de dialogue bloque la page et n'est pas testable).
@@ -94,7 +94,7 @@ verifie('changer de marche invalide la confirmation',
 
 // Les refus qui restent des refus : ils ne coutent aucun revenu.
 verifie('une vente AU-DESSUS de l ask reste refusee',
-  contient(verifier(base({ cote: 'SELL', prix: 0.25 })), 'au-dessus du meilleur ask'));
+  contient(verifier(base({ cote: 'SELL', prix: 0.25 })), 'above the best ask'));
 verifie('un carnet mort reste un refus, meme pour un preneur',
   verifier(base({ prix: 0.18, verdict: { verdict: 'mort', phrase: 'x' } })).length > 0);
 verifie('une taille sous le minimum reste refusee, meme pour un preneur',
@@ -120,7 +120,7 @@ verifie(
 // --- Prix hors bande et hors tick ----------------------------------------
 verifie('refuse un prix a 0', verifier(base({ prix: 0 })).length > 0);
 verifie('refuse un prix a 1', verifier(base({ prix: 1 })).length > 0);
-verifie('refuse un prix hors tick', contient(verifier(base({ prix: 0.145 })), 'multiple du tick'));
+verifie('refuse un prix hors tick', contient(verifier(base({ prix: 0.145 })), 'multiple of the tick'));
 verifie(
   'un tick de 0,001 accepte 0,085',
   verifier(base({ prix: 0.085, marche: { tick: 0.001, minimum: 5 } })).length === 0,
@@ -180,7 +180,7 @@ verifie('accepte exactement le minimum, en avertissant', vendable(5, 5).max === 
 verifie(
   'un carnet mort depuis 6 releves le dit',
   verifier(base({ verdict: { verdict: 'mort', phrase: 'aucune contrepartie', persistance: 6 } }))
-    .some((r) => r.includes('depuis 6 releves')),
+    .some((r) => r.includes('for 6 runs')),
 );
 
 // --- Le champ qui decide OU sont les fonds -------------------------------
