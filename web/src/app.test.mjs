@@ -261,5 +261,28 @@ verifie(
   /textContent\s*=/.test(sansCommentaires),
 );
 
+const RE_POSTONLY = new RegExp('postOnly:' + '\s*true');
+const RE_ACCENT = /[à-ÿ]/;
+
+// --- 2026-08-27 : postOnly cable en dur faisait refuser par le CLOB tout ordre
+// preneur, c'est-a-dire le seul type d'ordre qui nous rapporte quelque chose.
+// Ce controle avait ete ANNONCE le 27/08 et n'avait jamais ete ecrit : le
+// remplacement qui devait l'inserer n'a pas trouve son ancre et a echoue en
+// SILENCE. Un test absent passe toujours -- d'ou cette ligne, enfin posee.
+verifie('postOnly n est plus cable en dur', !RE_POSTONLY.test(sansCommentaires));
+
+// --- 2026-08-28 : TROISIEME fois que du francais survit a une traduction. Les
+// deux premieres, j'avais verifie le FICHIER HTML au lieu de la page rendue --
+// or les libelles de boutons sont ecrits par le JS. On n'inspecte donc plus a
+// la main : on interdit la classe entiere.
+const MOTS_FR = ['Vendre', 'Annuler', 'Acheter', 'Rafraichir', 'Connecter', 'Poser', 'Charger'];
+const restes = MOTS_FR.filter((m) => sansCommentaires.includes("'" + m + "'"));
+for (const r of restes) console.log('       libelle francais :', r);
+verifie('aucun libelle de bouton en francais', restes.length === 0);
+
+// Un accent ne peut pas venir d'un identifiant ni d'un texte anglais : hors
+// commentaires, il ne peut venir que d'une chaine destinee a l'utilisateur.
+verifie('aucun accent francais hors commentaires', !RE_ACCENT.test(sansCommentaires));
+
 console.log(echecs ? `\n${echecs} verification(s) en echec` : '\ntoutes les verifications passent');
 process.exit(echecs ? 1 : 0);

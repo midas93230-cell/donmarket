@@ -395,7 +395,7 @@ async function connecter() {
     return;
   }
   if (!etat.config) {
-    dire("Pas de app-config.json : la pose d'ordre est desactivee.", 'erreur');
+    dire('No app-config.json: order placement is disabled.', 'erreur');
     return;
   }
   try {
@@ -548,7 +548,7 @@ export function rendrePositions(positions) {
     const celluleAction = document.createElement('td');
     const bouton = document.createElement('button');
     bouton.className = 'mini';
-    bouton.textContent = 'Vendre';
+    bouton.textContent = 'Sell';
     bouton.addEventListener('click', () => preparerVente(p));
     celluleAction.append(bouton);
     tr.append(celluleAction);
@@ -576,7 +576,7 @@ export function rendreOrdres(ordres) {
     const celluleAction = document.createElement('td');
     const bouton = document.createElement('button');
     bouton.className = 'mini danger';
-    bouton.textContent = 'Annuler';
+    bouton.textContent = 'Cancel';
     bouton.addEventListener('click', () => annuler(o, rempli, total));
     celluleAction.append(bouton);
     tr.append(celluleAction);
