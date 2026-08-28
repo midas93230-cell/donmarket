@@ -271,6 +271,11 @@ def page(lignes: list[dict], style: str) -> str:
   td.l{max-width:340px}
   .scroller{overflow-x:auto}
   a{color:var(--teal)}
+  .cta{border:1px solid var(--teal);border-radius:10px;padding:20px 22px;margin:26px 0}
+  .cta h2{margin:0 0 8px;font-size:1.15rem}
+  .cta p{margin:0 0 14px}
+  .cta .go{display:inline-block;padding:10px 18px;border:1px solid var(--teal);
+       border-radius:8px;text-decoration:none;font-weight:600}
 """
     return f"""<title>Polymarket Book Health</title>
 <style>{style}{extra}</style>
@@ -288,6 +293,17 @@ def page(lignes: list[dict], style: str) -> str:
 
   <div class="thesis">{tuiles}</div>
 
+  <div class="cta">
+    <h2>These verdicts are enforced, not just published</h2>
+    <p>The same measurement runs inside <b>DONmarket</b>, a page that connects your
+    wallet and re-reads the book before anything is sent &mdash; then refuses the order
+    and says why: a dead or trapped book, a size at exactly the minimum (any partial
+    fill strands a remainder you cannot sell), a sell posted above the best ask, an
+    order that crosses the spread when you did not mean to. Nothing to install, no
+    account, and no key ever leaves your wallet.</p>
+    <a class="go" href="./app.html">Open the app &rarr;</a>
+  </div>
+
   <section>
     <h2>Every book, worst-case first</h2>
     <p class="sub">Sorted so the tradable ones come first and the traps are impossible to miss. Depth is shares at the best bid / best ask. Ticket is what the minimum order size actually costs you at the current bid &mdash; commit less than twice that and a partial fill can leave you holding something you cannot sell.</p>
@@ -299,7 +315,7 @@ def page(lignes: list[dict], style: str) -> str:
 
   <footer>
     <p>Built by Abdoul Lahad Amar. Method and source: <a href="https://github.com/midas93230-cell/donmarket">github.com/midas93230-cell/donmarket</a>.
-    Related: <a href="./">Builders Radar</a> &middot; <a href="./python.html">Python SDK traps</a> &middot; <a href="./strategies.html">Six strategies, measured</a>.</p>
+    Related: <a href="./app.html">The app</a> &middot; <a href="./">Builders Radar</a> &middot; <a href="./python.html">Python SDK traps</a> &middot; <a href="./strategies.html">Six strategies, measured</a>.</p>
     <p>No affiliation with Polymarket. A snapshot goes stale &mdash; re-run the script rather than trusting an old page. Nothing here is financial advice.</p>
   </footer>
 </div>"""
