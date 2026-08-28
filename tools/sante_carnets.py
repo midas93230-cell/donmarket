@@ -281,6 +281,15 @@ def page(lignes: list[dict], style: str) -> str:
        border-radius:8px;text-decoration:none;font-weight:600}
 """
     return f"""<title>Polymarket Book Health</title>
+<meta name="description" content="Every Polymarket book read from the CLOB and judged on spread, volume, depth on both sides and minimum ticket. Wherever there is volume, the spread is exactly one tick." />
+<meta property="og:type" content="website" />
+<meta property="og:site_name" content="DONmarket" />
+<meta property="og:url" content="https://midas93230-cell.github.io/donmarket/health.html" />
+<meta property="og:title" content="Polymarket Book Health — which books are actually alive" />
+<meta property="og:description" content="Every Polymarket book read from the CLOB and judged on spread, volume, depth on both sides and minimum ticket. Wherever there is volume, the spread is exactly one tick." />
+<meta name="twitter:card" content="summary" />
+<meta name="twitter:title" content="Polymarket Book Health — which books are actually alive" />
+<meta name="twitter:description" content="Every Polymarket book read from the CLOB and judged on spread, volume, depth on both sides and minimum ticket. Wherever there is volume, the spread is exactly one tick." />
 <style>{style}{extra}</style>
 <div class="wrap">
   <header class="stack masthead">

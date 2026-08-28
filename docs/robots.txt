@@ -1,0 +1,3 @@
+User-agent: *
+Allow: /
+Sitemap: https://midas93230-cell.github.io/donmarket/sitemap.xml

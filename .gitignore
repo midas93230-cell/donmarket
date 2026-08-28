@@ -25,3 +25,7 @@ node_modules/
 .wrangler/
 # .dev.vars est l'équivalent .env de wrangler : il porterait le secret builder.
 .dev.vars
+
+# journaux d'execution du veilleur -- local, jamais versionne
+veille.log
+veille.out
