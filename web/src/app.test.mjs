@@ -205,7 +205,7 @@ const univers = [
 ];
 const comp = composition(univers);
 verifie('trois categories exactement', comp.length === 3);
-verifie('les cotables sont comptes', comp[0].n === 3 && comp[0].nom === 'cotables');
+verifie('les cotables sont comptes', comp[0].n === 3 && comp[0].nom === 'worth quoting');
 verifie('les serres sont comptes', comp[1].n === 1);
 verifie('les quatre verdicts nuisibles sont fusionnes', comp[2].n === 4);
 verifie('les parts totalisent 1', Math.abs(comp.reduce((s, c) => s + c.part, 0) - 1) < 1e-9);

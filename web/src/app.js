@@ -171,7 +171,7 @@ export async function carnet(tokenId, chercher = fetch) {
 async function marcheParSlug(slug) {
   const r = await fetch(`${GAMMA}?slug=${encodeURIComponent(slug)}`);
   const j = await r.json();
-  if (!j || !j.length) throw new Error('marche introuvable');
+  if (!j || !j.length) throw new Error('market not found');
   const m = j[0];
   return {
     slug,
@@ -311,7 +311,7 @@ export function adresseValide(saisie) {
 
 export function vendable(detenu, minimum) {
   if (!Number.isFinite(detenu) || detenu <= 0) {
-    return { max: 0, refus: 'aucune part detenue' };
+    return { max: 0, refus: 'no shares held' };
   }
   if (detenu < minimum) {
     return {
@@ -437,7 +437,7 @@ async function connecter() {
     const memorises = lireSession(adresse);
     dire(
       memorises
-        ? 'Identifiants CLOB repris de cette session, aucune signature requise…'
+        ? 'CLOB credentials reused from this session, no signature needed…'
         : 'Signature demandee pour deriver les identifiants CLOB…',
     );
 
@@ -527,7 +527,7 @@ export function rendrePositions(positions) {
   const corps = $('positions');
   corps.replaceChildren();
   if (!positions.length) {
-    ligneVide(corps, 5, 'aucune position');
+    ligneVide(corps, 5, 'no positions');
     return;
   }
   for (const p of positions) {
@@ -560,7 +560,7 @@ export function rendreOrdres(ordres) {
   const corps = $('ordres');
   corps.replaceChildren();
   if (!ordres.length) {
-    ligneVide(corps, 5, 'aucun ordre au carnet');
+    ligneVide(corps, 5, 'no resting orders');
     return;
   }
   for (const o of ordres) {
@@ -591,9 +591,9 @@ async function annuler(ordre, rempli, total) {
     const reste = total - rempli;
     if (
       !window.confirm(
-        `Cette vente est remplie a ${rempli.toFixed(2)} sur ${total}. ` +
-          `L'annuler laisse ${reste.toFixed(2)} parts, probablement sous le minimum ` +
-          `d'ordre : elles deviendraient invendables. Annuler quand meme ?`,
+        `This sell is filled ${rempli.toFixed(2)} of ${total}. ` +
+          `Cancelling it leaves ${reste.toFixed(2)} shares, probably below the minimum ` +
+          `order size, which would make them unsellable. Cancel anyway?`,
       )
     ) {
       dire('Cancellation abandoned — the remainder would be unsellable.', 'ok');
@@ -624,11 +624,11 @@ async function annuler(ordre, rempli, total) {
  * la couleur ne porte jamais l'information seule.
  */
 const COMPOSITION = [
-  { cle: 'vivant', nom: 'cotables', couleur: 'var(--vivant)', verdicts: ['tradable'] },
-  { cle: 'serre', nom: 'serres', couleur: 'var(--serre)', verdicts: ['efficient'] },
+  { cle: 'vivant', nom: 'worth quoting', couleur: 'var(--vivant)', verdicts: ['tradable'] },
+  { cle: 'serre', nom: 'tight', couleur: 'var(--serre)', verdicts: ['efficient'] },
   {
     cle: 'eviter',
-    nom: 'a eviter',
+    nom: 'avoid',
     couleur: 'var(--eviter)',
     verdicts: ['mort', 'piege', 'desequilibre', 'lent'],
   },
@@ -687,7 +687,7 @@ function rendreListe(filtre = '') {
     .filter((l) => !f || l.question.toLowerCase().includes(f) || l.slug.includes(f))
     .slice(0, 80);
   if (!choix.length) {
-    ligneVide(corps, 5, 'aucun marche');
+    ligneVide(corps, 5, 'no markets');
     return;
   }
   for (const l of choix) {
@@ -702,7 +702,7 @@ function rendreListe(filtre = '') {
     cVerdict.append(pastille);
     tr.append(
       cellule(String(l.question).slice(0, 52), 'l'),
-      cellule(l.volume24h.toLocaleString('fr-FR', { maximumFractionDigits: 0 }), 'num'),
+      cellule(l.volume24h.toLocaleString('en-US', { maximumFractionDigits: 0 }), 'num'),
       cellule(`${fmt(l.bid, 3)} / ${fmt(l.ask, 3)}`, 'num'),
       cellule(l.persistance ?? 1, 'num'),
       cVerdict,
@@ -734,7 +734,7 @@ async function rafraichirCarnet() {
       `ecart ${c.bid && c.ask ? fmt(100 * ((c.ask - c.bid) / c.bid), 1) : '—'} %\n` +
       (v
         ? `verdict : ${v.verdict} depuis ${v.persistance ?? 1} releve(s) — ${v.phrase}`
-        : 'verdict : ce marche n a pas ete mesure');
+        : 'verdict: this market has not been measured');
     $('verdict').className = `pastille ${v ? v.verdict : 'inconnu'}`;
     $('verdict').textContent = v ? v.verdict : 'non mesure';
     if (!$('prix').value && c.bid) $('prix').value = (c.bid + m.tick).toFixed(4).replace(/0+$/, '');
@@ -861,10 +861,10 @@ async function demarrer() {
     // du jour donnerait au lecteur du 27 aout des chiffres du 26 presentes
     // comme frais -- sur une page dont la credibilite est la mesure, ce
     // decalage d'un jour suffit a la detruire.
-    let quand = 'date inconnue';
+    let quand = 'date unknown';
     try {
       const meta = await (await fetch('./health-meta.json', { cache: 'no-store' })).json();
-      quand = new Date(meta.mesure).toLocaleString('fr-FR', {
+      quand = new Date(meta.mesure).toLocaleString('en-GB', {
         day: 'numeric',
         month: 'long',
         hour: '2-digit',
@@ -874,7 +874,7 @@ async function demarrer() {
       // Sans le fichier de metadonnees, on ne DEVINE pas : on le dit.
     }
     $('mesure').textContent =
-      `${etat.lignes.length} carnets sondes un a un sur le carnet reel — releve du ${quand}.`;
+      `${etat.lignes.length} books probed one by one on the live CLOB — measured ${quand}.`;
     rendreComposition(etat.lignes);
     rendreListe();
   } catch (e) {
