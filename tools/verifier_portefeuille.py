@@ -58,20 +58,37 @@ RESIDU = Decimal("0.01")
 CONNUS = {"TRADE", "DEPOSIT", "REDEEM", "WITHDRAW", "WITHDRAWAL"}
 MOUVEMENTS = {"SPLIT", "MERGE", "CONVERSION"}
 
-
-def lignes(paginator, limite: int) -> list:
-    """Un `Paginator` itere des PAGES, pas des lignes (piege mesure le 20/08)."""
-    out = []
-    for page in paginator:
-        items = getattr(page, "items", None)
-        out.extend(items if items is not None else [page])
-        if len(out) >= limite:
-            break
-    return out[:limite]
+# CE QUE POLYMARKET REFUSE DE SERVIR. Au-dela de 5 000 actes, l'API repond
+# « max historical activity offset of 5000 exceeded ». Les trois premiers du
+# classement all-time sont tous au-dessus. Aucun outil, le notre compris, ne
+# peut donc verifier un historique plus long -- et c'est la vraie raison pour
+# laquelle personne ne prouve rien sur cette place de marche.
+PLAFOND_API = 5000
 
 
-def collecter(client, wallet: str, limite: int) -> list:
-    return lignes(client.list_activity(user=wallet, page_size=100), limite)
+def collecter(client, wallet: str, limite: int) -> tuple[list, bool]:
+    """Rend (actes, plafond_atteint). Un `Paginator` itere des PAGES, pas des
+    lignes -- piege mesure le 2026-08-20.
+
+    LE PLAFOND EST CELUI DE POLYMARKET, PAS LE NOTRE. Mesure du 2026-08-29 sur
+    les trois premiers du classement : au-dela de 5 000 actes, l'API repond
+    « max historical activity offset of 5000 exceeded » et rien d'autre. C'est
+    la raison MECANIQUE pour laquelle « 99,3 % sur 32 614 trades » ne peut pas
+    etre verifie par qui que ce soit : le registre public est tronque a la
+    source. Ce n'est pas une panne a rattraper, c'est un fait a publier.
+    """
+    out, plafond = [], False
+    try:
+        for page in client.list_activity(user=wallet, page_size=100):
+            items = getattr(page, "items", None)
+            out.extend(items if items is not None else [page])
+            if len(out) >= min(limite, PLAFOND_API):
+                break
+    except Exception as exc:  # noqa: BLE001
+        if "offset" not in str(exc).lower():
+            raise
+        plafond = True
+    return out[:limite], plafond or len(out) >= PLAFOND_API
 
 
 def d(valeur) -> Decimal:
@@ -162,7 +179,7 @@ def bloquants(types: Counter, ouverts: list) -> list[str]:
 
 
 def rapport(wallet: str, actes: list, compta: dict, annonce: float | None,
-            limite: int) -> None:
+            limite: int, plafond: bool = False) -> None:
     soldes, ouverts = trier(compta["jetons"])
     gagnants = [s for s in soldes if s["gain"] > 0]
     realise = sum(s["gain"] for s in soldes)
@@ -182,15 +199,33 @@ def rapport(wallet: str, actes: list, compta: dict, annonce: float | None,
         jours = max((dates[-1] - dates[0]).days, 1)
         print(f"\n{len(actes)} actes lus, du {dates[0]:%Y-%m-%d} au "
               f"{dates[-1]:%Y-%m-%d} ({jours} jours)")
-        if len(actes) >= limite:
-            print(f"  ATTENTION : plafond de {limite} actes atteint. "
-                  "L'historique est plus long que ce qui est lu ici ;\n"
-                  "  relancer avec --max plus haut avant de citer un chiffre.")
+        if plafond:
+            print("\n  *** NON VERIFIABLE — ET CE N'EST PAS NOTRE LIMITE. ***\n"
+                  f"  Polymarket refuse de servir au-dela de {PLAFOND_API} "
+                  "actes par portefeuille\n  (« max historical activity offset "
+                  f"of {PLAFOND_API} exceeded »). L'historique de ce\n  "
+                  "portefeuille est plus long. Tout ce qui suit ne porte donc "
+                  "que sur la\n  fenetre lue, et AUCUN total, taux ou ratio "
+                  "n'est valide pour ce compte.\n"
+                  "  C'est la raison mecanique pour laquelle personne ne peut "
+                  "prouver un\n  historique de 32 614 trades : le registre "
+                  "public est tronque a la source.")
+        elif len(actes) >= limite:
+            print(f"  ATTENTION : plafond local de {limite} actes atteint. "
+                  "Relancer avec --max plus haut.")
     print(f"  repartition : {dict(compta['types'])}")
 
     print(f"\nDEPOTS      : {compta['depots']:>12.2f} $   <-- le denominateur "
           "que les annonces omettent")
     print(f"RETRAITS    : {compta['retraits']:>12.2f} $")
+    if compta["retraits"] > compta["depots"]:
+        # UN RETRAIT EST LA MEILLEURE PREUVE QU'IL Y AIT. Un PnL affiche est
+        # une ligne dans une interface ; de l'argent SORTI du compte a du
+        # exister pour sortir. Sortir plus qu'on n'a depose ne se simule pas.
+        print(f"  CORROBORATION : {compta['retraits'] - compta['depots']:.2f} $ "
+              "sortis de plus qu'il n'en est entre.\n"
+              "  Un retrait ne se falsifie pas -- c'est la preuve la plus "
+              "solide disponible ici,\n  bien plus qu'un PnL affiche.")
 
     engage = sum(o["achat_usdc"] - o["vente_usdc"] - o["redeem_usdc"]
                  for o in ouverts)
@@ -222,7 +257,12 @@ def rapport(wallet: str, actes: list, compta: dict, annonce: float | None,
     # Il suppose que toutes les positions ouvertes valent ZERO -- l'hypothese
     # la plus defavorable possible. Ce qu'il rend n'est donc pas une estimation
     # mais une GARANTIE : le resultat reel ne peut pas etre en dessous.
-    print(f"\nPLANCHER GARANTI : {plancher:+.2f} $ "
+    # UN PLANCHER N'EST GARANTI QUE SUR UN HISTORIQUE COMPLET. Sur une fenetre
+    # tronquee il ne vaut que pour la fenetre, et l'appeler « garanti » serait
+    # exactement l'abus de confiance qu'on reproche aux annonces.
+    titre = "PLANCHER GARANTI" if not plafond else \
+        f"PLANCHER SUR LA FENETRE LUE SEULEMENT ({len(actes)} derniers actes)"
+    print(f"\n{titre} : {plancher:+.2f} $ "
           f"pour {compta['depots']:.2f} $ deposes", end="")
     if compta["depots"] > 0:
         print(f"  ({100 * plancher / compta['depots']:+.1f} %)")
@@ -233,10 +273,31 @@ def rapport(wallet: str, actes: list, compta: dict, annonce: float | None,
 
     if annonce is not None:
         print("\n" + "=" * 70)
-        ecart = Decimal(str(annonce)) - realise
         print(f"ANNONCE : {annonce:.2f} $")
+        if plafond or len(actes) >= limite:
+            # LA COMPARAISON EST INTERDITE SUR UN HISTORIQUE TRONQUE. Mesure du
+            # 2026-08-29 sur le 1er du classement : 2 000 actes lus sur un
+            # historique bien plus long, et l'outil annoncait « depasse le
+            # prouvable d'un facteur 104,9 ». C'etait un chiffre confiant et
+            # faux -- exactement ce que cet outil existe pour denoncer. On ne
+            # confronte une annonce QUE si on a lu tout l'historique.
+            print("CONFRONTATION IMPOSSIBLE : historique tronque.")
+            print("Un ratio calcule sur une fenetre partielle n'aurait aucun "
+                  "sens.")
+            if plafond:
+                # NE JAMAIS CONSEILLER UNE ACTION IMPOSSIBLE. Le plafond est
+                # celui de Polymarket : relancer avec --max plus haut ne change
+                # rien. Dire « reessaie » ici ferait perdre un tour a chaque
+                # fois, comme le conseil `--large` de chercher_cycle.
+                print(f"Et AUCUN reglage n'y changera rien : le plafond de "
+                      f"{PLAFOND_API} actes est celui de\nPolymarket. Le seul "
+                      "verdict honnete sur ce portefeuille est : NON "
+                      "VERIFIABLE.")
+            else:
+                print(f"Relancer avec --max au-dessus de {limite}.")
+            return
         print(f"PROUVE  : {realise:.2f} $ (positions soldees)")
-        print(f"ECART   : {ecart:.2f} $")
+        print(f"ECART   : {Decimal(str(annonce)) - realise:.2f} $")
         if realise > 0 and Decimal(str(annonce)) > realise * 2:
             print("\nL'annonce depasse le prouvable d'un facteur "
                   f"{Decimal(str(annonce)) / realise:.1f}. "
@@ -258,11 +319,12 @@ def main() -> int:
 
     for wallet in args.wallets:
         try:
-            actes = collecter(client, wallet, args.max)
+            actes, plafond = collecter(client, wallet, args.max)
         except Exception as exc:  # noqa: BLE001
             print(f"{wallet} : illisible ({str(exc)[:80]})")
             continue
-        rapport(wallet, actes, comptabiliser(actes), args.annonce, args.max)
+        rapport(wallet, actes, comptabiliser(actes), args.annonce, args.max,
+                plafond)
         print()
     return 0
 
