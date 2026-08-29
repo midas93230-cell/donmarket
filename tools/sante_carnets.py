@@ -402,7 +402,7 @@ def page(lignes: list[dict], style: str) -> str:
 
   <footer>
     <p>Built by Abdoul Lahad Amar. Method and source: <a href="https://github.com/midas93230-cell/donmarket">github.com/midas93230-cell/donmarket</a>.
-    Related: <a href="./app.html">The app</a> &middot; <a href="./">Builders Radar</a> &middot; <a href="./python.html">Python SDK traps</a> &middot; <a href="./strategies.html">Six strategies, measured</a>.</p>
+    Related: <a href="./app.html">The app</a> &middot; <a href="./verify.html">Can you verify a track record?</a> &middot; <a href="./">Builders Radar</a> &middot; <a href="./python.html">Python SDK traps</a> &middot; <a href="./strategies.html">Six strategies, measured</a>.</p>
     <p>No affiliation with Polymarket. A snapshot goes stale &mdash; re-run the script rather than trusting an old page. Nothing here is financial advice.</p>
   </footer>
 </div>"""

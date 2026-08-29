@@ -1,0 +1,236 @@
+<meta charset="utf-8">
+<title>Can you verify a Polymarket track record?</title>
+<meta name="viewport" content="width=device-width,initial-scale=1">
+<meta property="og:title" content="Can you verify a Polymarket track record?">
+<meta property="og:description" content="Measured: Polymarket's public API stops at 5000 activity records per wallet. Every long track record is structurally unverifiable.">
+<style>
+  :root{
+    --ground:#F4F6F9; --surface:#FFFFFF; --surface-2:#EAEFF5;
+    --ink:#111820; --ink-2:#485664; --ink-3:#7A8794;
+    --rule:#D8E0E8; --rule-strong:#B9C5D1;
+    --brass:#8A5E10; --brass-fill:#EEE1C2;
+    --teal:#245F5F; --teal-fill:#D5E6E4;
+    --alarm:#A5362B; --alarm-fill:#F6DED9;
+    --shadow:0 1px 2px rgba(17,24,32,.06),0 8px 24px -16px rgba(17,24,32,.28);
+    --display:Georgia,'Iowan Old Style','Times New Roman',serif;
+    --body:system-ui,-apple-system,'Segoe UI',Roboto,sans-serif;
+    --data:ui-monospace,SFMono-Regular,'SF Mono',Consolas,'Liberation Mono',monospace;
+  }
+  @media (prefers-color-scheme:dark){
+    :root:not([data-theme="light"]){
+      --ground:#0E1319; --surface:#161D25; --surface-2:#1E262F;
+      --ink:#E9EEF3; --ink-2:#A5B1BE; --ink-3:#6D7B89;
+      --rule:#28313B; --rule-strong:#3A4652;
+      --brass:#E3B155; --brass-fill:#3B2F14;
+      --teal:#63B2AE; --teal-fill:#123130;
+      --alarm:#E27F70; --alarm-fill:#3C201C;
+      --shadow:0 1px 2px rgba(0,0,0,.4),0 8px 24px -16px rgba(0,0,0,.8);
+    }
+  }
+  :root[data-theme="dark"]{
+    --ground:#0E1319; --surface:#161D25; --surface-2:#1E262F;
+    --ink:#E9EEF3; --ink-2:#A5B1BE; --ink-3:#6D7B89;
+    --rule:#28313B; --rule-strong:#3A4652;
+    --brass:#E3B155; --brass-fill:#3B2F14;
+    --teal:#63B2AE; --teal-fill:#123130;
+    --alarm:#E27F70; --alarm-fill:#3C201C;
+    --shadow:0 1px 2px rgba(0,0,0,.4),0 8px 24px -16px rgba(0,0,0,.8);
+  }
+
+  *{box-sizing:border-box}
+  body{
+    margin:0; background:var(--ground); color:var(--ink);
+    font-family:var(--body); font-size:16px; line-height:1.6;
+    -webkit-font-smoothing:antialiased;
+  }
+  .wrap{max-width:1080px; margin:0 auto; padding:clamp(24px,5vw,64px) clamp(16px,4vw,40px) 80px}
+  .stack{display:flex; flex-direction:column}
+
+  /* ---- masthead ---- */
+  .masthead{gap:18px; padding-bottom:28px; border-bottom:2px solid var(--ink)}
+  .eyebrow{
+    font-family:var(--data); font-size:11px; letter-spacing:.16em;
+    text-transform:uppercase; color:var(--brass); margin:0;
+  }
+  h1{
+    font-family:var(--display); font-weight:400; letter-spacing:-.02em;
+    font-size:clamp(2.6rem,7vw,4.4rem); line-height:1.02; margin:0;
+    text-wrap:balance;
+  }
+  .dek{
+    font-family:var(--display); font-size:clamp(1.05rem,2.3vw,1.3rem);
+    line-height:1.5; color:var(--ink-2); margin:0; max-width:62ch;
+  }
+  .byline{
+    display:flex; flex-wrap:wrap; gap:8px 20px; font-family:var(--data);
+    font-size:11.5px; letter-spacing:.06em; color:var(--ink-3);
+    text-transform:uppercase; margin:0;
+  }
+
+  /* ---- thesis tiles ---- */
+  .thesis{
+    display:grid; grid-template-columns:repeat(auto-fit,minmax(230px,1fr));
+    gap:1px; background:var(--rule); border:1px solid var(--rule);
+    margin:36px 0 0;
+  }
+  .tile{background:var(--surface); padding:22px 20px 20px; display:flex; flex-direction:column; gap:8px}
+  .tile .n{
+    font-family:var(--data); font-variant-numeric:tabular-nums;
+    font-size:clamp(2rem,4.6vw,2.7rem); line-height:1; letter-spacing:-.03em;
+    color:var(--brass); font-weight:600;
+  }
+  .tile .n small{font-size:.44em; letter-spacing:.02em; color:var(--ink-3); font-weight:500}
+  .tile p{margin:0; font-size:14px; line-height:1.5; color:var(--ink-2)}
+  .tile .lab{
+    font-family:var(--data); font-size:10.5px; letter-spacing:.14em;
+    text-transform:uppercase; color:var(--ink-3);
+  }
+
+  /* ---- sections ---- */
+  section{margin-top:56px}
+  h2{
+    font-family:var(--display); font-weight:400; font-size:clamp(1.6rem,3.4vw,2.1rem);
+    letter-spacing:-.015em; margin:0 0 6px; text-wrap:balance;
+  }
+  .sub{margin:0 0 22px; color:var(--ink-2); font-size:15px; max-width:68ch}
+  p{max-width:68ch}
+
+  /* ---- table ---- */
+  .scroller{overflow-x:auto; border:1px solid var(--rule); background:var(--surface); box-shadow:var(--shadow)}
+  table{border-collapse:collapse; width:100%; min-width:840px; font-size:14px}
+  thead th{
+    font-family:var(--data); font-size:10.5px; letter-spacing:.12em; text-transform:uppercase;
+    color:var(--ink-3); font-weight:600; text-align:right; padding:14px 14px 11px;
+    border-bottom:1px solid var(--rule-strong); white-space:nowrap; background:var(--surface-2);
+  }
+  thead th:first-child,thead th.l{text-align:left}
+  tbody td{
+    padding:12px 14px; border-bottom:1px solid var(--rule); text-align:right;
+    font-family:var(--data); font-variant-numeric:tabular-nums; white-space:nowrap;
+  }
+  tbody td.l{text-align:left; font-family:var(--body)}
+  tbody tr:last-child td{border-bottom:none}
+  tbody tr:hover td{background:var(--surface-2)}
+  .name{font-weight:600; letter-spacing:-.005em}
+  .rk{font-family:var(--data); color:var(--ink-3); font-size:12px; width:2.5em; display:inline-block}
+  .rev{color:var(--brass); font-weight:600}
+  .zero{color:var(--ink-3)}
+  .bar{height:4px; background:var(--brass); display:block; margin-top:5px; min-width:1px}
+  .barwrap{display:block; width:120px; margin-left:auto}
+  .delta{font-size:12px; letter-spacing:.02em}
+  .up{color:var(--teal)} .down{color:var(--ink-3)}
+  .chip{
+    display:inline-block; font-family:var(--data); font-size:10px; letter-spacing:.1em;
+    text-transform:uppercase; padding:2px 7px; border:1px solid currentColor;
+    border-radius:2px; margin-left:8px; vertical-align:1px;
+  }
+  .chip.free{color:var(--ink-3)}
+  .chip.over{color:var(--alarm); background:var(--alarm-fill); border-color:var(--alarm)}
+
+  /* ---- callout ---- */
+  .callout{
+    border-left:3px solid var(--alarm); background:var(--alarm-fill);
+    padding:20px 22px; display:flex; flex-direction:column; gap:10px;
+  }
+  .callout h3{
+    margin:0; font-family:var(--display); font-weight:400; font-size:1.25rem; color:var(--ink);
+  }
+  .callout p{margin:0; color:var(--ink-2); font-size:14.5px}
+  .evidence{
+    font-family:var(--data); font-size:12.5px; background:var(--surface);
+    border:1px solid var(--rule); padding:12px 14px; overflow-x:auto;
+    color:var(--ink-2); line-height:1.7;
+  }
+  .evidence b{color:var(--ink)}
+
+  /* ---- method ---- */
+  .method{
+    display:grid; grid-template-columns:repeat(auto-fit,minmax(280px,1fr)); gap:24px;
+  }
+  .card{
+    background:var(--surface); border:1px solid var(--rule); padding:20px 22px;
+    display:flex; flex-direction:column; gap:9px;
+  }
+  .card h3{
+    margin:0; font-family:var(--data); font-size:11px; letter-spacing:.13em;
+    text-transform:uppercase; color:var(--brass); font-weight:600;
+  }
+  .card p{margin:0; font-size:14px; color:var(--ink-2)}
+  .card p b{color:var(--ink)}
+
+  footer{
+    margin-top:64px; padding-top:22px; border-top:1px solid var(--rule);
+    font-family:var(--data); font-size:11.5px; letter-spacing:.05em;
+    color:var(--ink-3); display:flex; flex-wrap:wrap; gap:8px 24px;
+  }
+  a{color:var(--brass)}
+  a:focus-visible,tr:focus-visible{outline:2px solid var(--brass); outline-offset:2px}
+  @media (prefers-reduced-motion:no-preference){
+    .bar{transition:width .5s cubic-bezier(.22,.61,.36,1)}
+  }
+</style>
+<h1>Can you verify a Polymarket track record?</h1>
+<p class="lede">Measured 29 August 2026, 21:56 UTC. <b>6 of the top 10
+wallets (60%) cannot be audited at all</b> &mdash; not because their
+owners hide anything, but because the public API stops serving after
+5000 activity records per wallet.</p>
+
+<p>Every week someone posts a screenshot: <i>99.3% across 32,614 trades</i>,
+<i>$313 turned into $438K</i>. And every week the top comment says the same
+thing &mdash; <i>none of them can prove their track record is real</i>. That
+comment is right, and the reason is not dishonesty. Ask the API for record
+5,001 of any wallet and it answers:</p>
+
+<pre>max historical activity offset of 5000 exceeded</pre>
+
+<p>So a 32,614-trade history is out of reach for <b>everyone</b>, including
+someone perfectly honest with perfect tooling. That is a property of the
+platform, not a judgement about the trader.</p>
+
+<table>
+<tr><th>#</th><th>Wallet</th><th>Claimed PnL ($)</th><th>Records readable</th>
+<th>Net withdrawn ($)</th><th>Verdict</th><th>Open positions</th></tr>
+<tr><td>1</td><td>swisstony</td><td class='num'>23,628,090</td><td class='num'>5,000</td><td class='num'>5,958,000</td><td><b>not auditable</b></td><td class='num'>599</td></tr><tr><td>2</td><td>Theo4</td><td class='num'>22,053,934</td><td class='num'>5,000</td><td class='num'>33,883,604</td><td><b>not auditable</b></td><td class='num'>16</td></tr><tr><td>3</td><td>Fredi9999</td><td class='num'>16,619,507</td><td class='num'>5,000</td><td class='num'>27,980,396</td><td><b>not auditable</b></td><td class='num'>11</td></tr><tr><td>4</td><td>RN1</td><td class='num'>13,054,646</td><td class='num'>5,000</td><td class='num'>0</td><td><b>not auditable</b></td><td class='num'>912</td></tr><tr><td>5</td><td>kch123</td><td class='num'>11,386,691</td><td class='num'>5,000</td><td class='num'>480,584</td><td><b>not auditable</b></td><td class='num'>58</td></tr><tr><td>6</td><td>mintblade</td><td class='num'>9,238,345</td><td class='num'>830</td><td class='num'>9,138,397</td><td><b>corroborated</b> (1.1%)</td><td class='num'>5</td></tr><tr><td>7</td><td>fishalive</td><td class='num'>9,063,378</td><td class='num'>1,724</td><td class='num'>8,498,156</td><td><b>corroborated</b> (6.2%)</td><td class='num'>2</td></tr><tr><td>8</td><td>frostrizz</td><td class='num'>8,928,561</td><td class='num'>2,089</td><td class='num'>8,833,468</td><td><b>corroborated</b> (1.1%)</td><td class='num'>6</td></tr><tr><td>9</td><td>Len9311238</td><td class='num'>8,709,973</td><td class='num'>5,000</td><td class='num'>9,950,981</td><td><b>not auditable</b></td><td class='num'>8</td></tr><tr><td>10</td><td>sparklingwater123</td><td class='num'>8,474,966</td><td class='num'>1,139</td><td class='num'>8,350,906</td><td><b>corroborated</b> (1.5%)</td><td class='num'>4</td></tr>
+</table>
+
+<h2>And now the part nobody expects</h2>
+<p class="lede">Of the 4 wallets whose entire history <i>is</i>
+readable, <b>4 match their claimed PnL within 10%</b> &mdash; most
+of them within about one percent.</p>
+
+<p><b>Withdrawals cannot be faked.</b> A displayed PnL is a line in an
+interface; money that <i>left</i> an account had to exist in order to leave.
+So we take withdrawals minus deposits &mdash; net money out, on chain &mdash;
+and compare it to the number the leaderboard advertises. For the wallets we can
+read end to end, the two agree closely.</p>
+
+<p>The running assumption in every thread is that the top of this leaderboard
+is fabricated. On this evidence it is not. The problem is narrower, and
+stranger: <b>you cannot check 6 of them at all</b>, and the ones
+you can check turn out to be telling the truth.</p>
+
+<p>Which turns the usual suspicion upside down. Be sceptical not of the
+eight-figure wallets that withdraw millions, but of the small screenshots
+&mdash; <i>$20 into $180 in a week</i> &mdash; where nothing was ever withdrawn
+and every gain still sits in open positions.</p>
+
+<h2>Two traps in reading any of these claims</h2>
+<p><b>Deposits are the denominator.</b> &ldquo;$313 into $438K&rdquo; means
+nothing if the wallet also received $500K in deposits. The deposit is public;
+almost nobody quotes it. On our own account the same error ran the other way:
+we compared value against <i>cumulative capital deployed</i> instead of
+deposits, and believed we were down 25% while we were up 41%.</p>
+<p><b>Realised gains and win rates are upper bounds, never results.</b> You
+close winners &mdash; there is a buyer &mdash; and you keep losers, because
+there is no counterparty. Losses therefore pile up in open positions and are
+never counted. That asymmetry alone is enough to manufacture a 100% win rate
+on a losing account.</p>
+
+<h2>Check it yourself</h2>
+<p>The tool is open source and read-only &mdash; no key, no authentication, no
+orders. It refuses to state a total while positions are open or while events it
+cannot account for remain, and it says which:</p>
+<pre>python tools/verifier_portefeuille.py 0xWALLET --annonce 438000</pre>
+<p><a href="https://github.com/midas93230-cell/donmarket">Source</a> &middot;
+<a href="health.html">Daily order-book health</a> &middot;
+<a href="app.html">Exit tool for unsellable positions</a></p>

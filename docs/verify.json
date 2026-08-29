@@ -1,0 +1,116 @@
+{
+ "mesure": "2026-08-29T21:56:32.284794+00:00",
+ "plafond_api": 5000,
+ "portefeuilles": [
+  {
+   "rang": 1,
+   "nom": "swisstony",
+   "wallet": "0x204f72f35326db932158cba6adff0b9a1da95e14",
+   "pnl_annonce": 23628089.91326492,
+   "actes": 5000,
+   "plafond_atteint": true,
+   "depots": 0.0,
+   "retraits": 5958000.0,
+   "ouvertes": 599
+  },
+  {
+   "rang": 2,
+   "nom": "Theo4",
+   "wallet": "0x56687bf447db6ffa42ffe2204a05edaa20f55839",
+   "pnl_annonce": 22053933.752321757,
+   "actes": 5000,
+   "plafond_atteint": true,
+   "depots": 7947409.118134,
+   "retraits": 41831013.463106,
+   "ouvertes": 16
+  },
+  {
+   "rang": 3,
+   "nom": "Fredi9999",
+   "wallet": "0x1f2dd6d473f3e824cd2f8a89d9c69fb96f6ad0cf",
+   "pnl_annonce": 16619506.631730152,
+   "actes": 5000,
+   "plafond_atteint": true,
+   "depots": 5359642.035779,
+   "retraits": 33340037.594354,
+   "ouvertes": 11
+  },
+  {
+   "rang": 4,
+   "nom": "RN1",
+   "wallet": "0x2005d16a84ceefa912d4e380cd32e7ff827875ea",
+   "pnl_annonce": 13054645.865724476,
+   "actes": 5000,
+   "plafond_atteint": true,
+   "depots": 0.0,
+   "retraits": 0.0,
+   "ouvertes": 912
+  },
+  {
+   "rang": 5,
+   "nom": "kch123",
+   "wallet": "0x6a72f61820b26b1fe4d956e17b6dc2a1ea3033ee",
+   "pnl_annonce": 11386690.875513865,
+   "actes": 5000,
+   "plafond_atteint": true,
+   "depots": 400454.40367,
+   "retraits": 881038.379452,
+   "ouvertes": 58
+  },
+  {
+   "rang": 6,
+   "nom": "mintblade",
+   "wallet": "0x96cfcb0c30942cfcd1cdf76c7d408794d66b1acb",
+   "pnl_annonce": 9238344.623224001,
+   "actes": 830,
+   "plafond_atteint": false,
+   "depots": 11016305.396799,
+   "retraits": 20154702.341409,
+   "ouvertes": 5
+  },
+  {
+   "rang": 7,
+   "nom": "fishalive",
+   "wallet": "0xed64a7bf029040aa331abc87902434d815ef217d",
+   "pnl_annonce": 9063378.176199999,
+   "actes": 1724,
+   "plafond_atteint": false,
+   "depots": 5293033.359719,
+   "retraits": 13791189.130031,
+   "ouvertes": 2
+  },
+  {
+   "rang": 8,
+   "nom": "frostrizz",
+   "wallet": "0xbc11a64ab34a03a043fbe80598fa065ee87eeec6",
+   "pnl_annonce": 8928561.11799,
+   "actes": 2089,
+   "plafond_atteint": false,
+   "depots": 9599844.938045,
+   "retraits": 18433312.856201,
+   "ouvertes": 6
+  },
+  {
+   "rang": 9,
+   "nom": "Len9311238",
+   "wallet": "0x78b9ac44a6d7d7a076c14e0ad518b301b63c6b76",
+   "pnl_annonce": 8709972.988069998,
+   "actes": 5000,
+   "plafond_atteint": true,
+   "depots": 6638971.318133,
+   "retraits": 16589952.12555,
+   "ouvertes": 8
+  },
+  {
+   "rang": 10,
+   "nom": "sparklingwater123",
+   "wallet": "0x664ce9fb97ae1bbd538d7381b2f4e92dab16f49c",
+   "pnl_annonce": 8474966.272470918,
+   "actes": 1139,
+   "plafond_atteint": false,
+   "depots": 8378295.782646,
+   "retraits": 16729202.250282,
+   "ouvertes": 4
+  }
+ ]
+}
