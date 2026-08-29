@@ -44,6 +44,10 @@ CLOB = "https://clob.polymarket.com"
 SURVEILLES = {
     "will-russia-invade-another-country-in-2026": "Russie envahit un pays en 2026",
     "will-the-toronto-blue-jays-clinch-a-spot-in-the-2026-mlb-postseason": "Blue Jays playoffs",
+    # Ajoute le 2026-08-29 : seul carnet du relevé au profil des deux cycles
+    # gagnants (tick 0,01 a 0,13 = 7,7 % par tick, 124 jours d'echeance,
+    # 27 impressions sur 100 au bid). Reserve : 12 235 parts en file au bid.
+    "clarity-act-signed-into-law-in-2026": "Clarity Act",
 }
 
 
