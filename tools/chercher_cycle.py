@@ -168,10 +168,21 @@ def main() -> int:
         time.sleep(0.25)
 
     if not retenus:
+        # LE CONSEIL DOIT DEPENDRE DE CE QU'ON VIENT DE FAIRE. Cette phrase
+        # conseillait `--large` meme quand on venait de le passer, ce qui fait
+        # relancer pour rien. Et quand les criteres relaches ne donnent rien non
+        # plus, la piste restante n'est pas de relacher davantage : c'est que le
+        # pre-filtre prix/tick lit `docs/health.json`, donc un bid entre dans la
+        # fourchette depuis le dernier releve est invisible ici.
+        suite = ("Les criteres relaches ne donnent rien non plus : remesurer\n"
+                 "(tools/sante_carnets.py) avant de relancer, le pre-filtre lit\n"
+                 "docs/health.json et ignore tout bid entre dans la fourchette\n"
+                 "depuis le dernier releve." if args.large else
+                 "Relancer demain, ou --large pour explorer.")
         print("AUCUN carnet ne presente le montage des deux cycles gagnants.\n"
               "Ce n'est pas un echec de l'outil : le montage est rare. Forcer un\n"
               "ordre sur un carnet qui ne le presente pas, c'est exactement la\n"
-              "faute du 2026-08-21. Relancer demain, ou --large pour explorer.")
+              "faute du 2026-08-21. " + suite)
         return 0
 
     retenus.sort(key=lambda r: -r["gain"])
