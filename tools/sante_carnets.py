@@ -98,6 +98,27 @@ ORDRE = {"tradable": 0, "efficient": 1, "desequilibre": 2, "lent": 3,
 # retroactivement, parce qu'il faut avoir mesure les verdicts jour apres jour.
 HISTORIQUE = "docs/history"
 
+# CE QUE L'ARCHIVE GARDE DE CHAQUE CARNET, CHAQUE JOUR. Elle n'a longtemps
+# retenu que le verdict, en jetant le soir meme les colonnes qui le JUSTIFIENT.
+# C'etait une perte seche : le verdict dit qu'un carnet etait mort, les prix
+# disent a quoi ressemblait un carnet VIVANT ce jour-la -- donc a quelle
+# frequence le montage d'entree apparait, la question qui decide s'il faut
+# continuer a en chercher un. Aucune de ces deux reponses ne se rattrape apres
+# coup. Memes noms de champs que `health.json` : un seul vocabulaire pour la
+# page du jour et pour l'archive, sans table de correspondance a maintenir.
+ARCHIVE = ("verdict", "bid", "ask", "tick", "prof_bid", "prof_ask",
+           "ticket_min", "volume24h")
+
+
+def ligne_archivee(ligne: dict) -> dict:
+    """Ce qu'on garde d'un carnet pour toujours, extrait du releve du jour.
+
+    Fonction nommee plutot qu'une expression enfouie dans `main()` : c'est la
+    seule ecriture de ce fichier qu'on ne pourra jamais refaire, elle merite
+    d'etre testable sans reseau.
+    """
+    return {c: ligne[c] for c in ARCHIVE if c in ligne}
+
 
 def charger_historique(jours: int = 30) -> dict[str, list[tuple[str, str]]]:
     """Rend {slug: [(date, verdict), ...]} du plus ancien au plus recent."""
@@ -115,7 +136,13 @@ def charger_historique(jours: int = 30) -> dict[str, list[tuple[str, str]]]:
             # Un releve illisible ne doit pas faire echouer la page : on
             # continue avec ce qu'on a, l'historique est un bonus.
             continue
-        for slug, code in releve.items():
+        for slug, mesure in releve.items():
+            # LES DEUX FORMATS SE LISENT ICI. Les releves du 26 au 29 aout 2026
+            # ne portent que le verdict, une chaine ; depuis, chaque ligne est
+            # un objet qui garde aussi les prix. Ne lire que le nouveau format
+            # jetterait les quatre premiers jours d'historique -- exactement ce
+            # que ce fichier existe pour empecher.
+            code = mesure["verdict"] if isinstance(mesure, dict) else mesure
             series.setdefault(slug, []).append((jour, code))
     return series
 
@@ -407,7 +434,8 @@ def main() -> int:
 
     os.makedirs(HISTORIQUE, exist_ok=True)
     with open(f"{HISTORIQUE}/{aujourdhui}.json", "w", encoding="utf-8", newline="\n") as f:
-        json.dump({l["slug"]: l["verdict"] for l in lignes}, f, ensure_ascii=False)
+        json.dump({l["slug"]: ligne_archivee(l) for l in lignes},
+                  f, ensure_ascii=False)
 
     with open("docs/_template.html", encoding="utf-8") as f:
         style = f.read().split("<style>", 1)[1].split("</style>")[0]
