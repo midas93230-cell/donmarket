@@ -45,6 +45,7 @@ import argparse
 import sys
 import time
 from collections import Counter, defaultdict
+from datetime import datetime, timezone
 from decimal import Decimal
 
 sys.path.insert(0, ".")
@@ -77,6 +78,50 @@ FENETRE_MIN = 3600
 # Pause entre deux fenetres. Le coût d'etre poli avec une API gratuite.
 PAUSE = 0.25
 
+# L'API publique, lue en direct. Le SDK plafonne ses pages a 100 lignes ; ici
+# 500 passent, soit cinq fois moins de requetes pour le meme historique.
+ACTIVITE = "https://data-api.polymarket.com/activity"
+PAR_REQUETE = 500
+
+
+class Acte:
+    """Un acte d'activite, lu directement de l'API publique.
+
+    ON NE PASSE PLUS PAR LE MODELE DU SDK. Mesure du 2026-08-30 : il refuse les
+    `REDEEM` de certains portefeuilles (`side` et `asset` vides,
+    `outcomeIndex: 999`) avec « TradeActivity response did not match expected
+    shape », ce qui faisait echouer l'audit de comptes ENTIERS -- RN1, 4e du
+    classement, disparaissait ainsi de l'etude. Pire : l'outil l'imputait a un
+    delai reseau. Un verificateur qui perd des comptes en silence est
+    exactement ce qu'il reproche aux captures d'ecran.
+
+    Le JSON brut, lui, est parfaitement lisible, et `limit=500` rend CINQ FOIS
+    plus d'actes par requete que les 100 du SDK -- ce qui divise d'autant la
+    pression sur une API qui nous limitait.
+    """
+
+    __slots__ = ("type", "side", "shares", "amount", "price", "token_id",
+                 "condition_id", "timestamp", "transaction_hash", "title")
+
+    def __init__(self, brut: dict):
+        self.type = (brut.get("type") or "").upper()
+        self.side = (brut.get("side") or "") or None
+        self.shares = brut.get("size")
+        self.amount = brut.get("usdcSize")
+        self.price = brut.get("price")
+        # UN REDEEM N'A PAS DE JETON. Il arrive avec `asset` vide : le
+        # remboursement porte sur le MARCHE, pas sur l'une de ses deux jambes.
+        # On garde les deux identifiants separes pour pouvoir rattacher le
+        # remboursement a la position qu'il solde -- sinon elle reste comptee
+        # « ouverte » a jamais, et la page publie un chiffre faux.
+        self.token_id = brut.get("asset") or None
+        self.condition_id = brut.get("conditionId") or None
+        self.transaction_hash = brut.get("transactionHash")
+        self.title = brut.get("title") or ""
+        horodatage = brut.get("timestamp")
+        self.timestamp = (datetime.fromtimestamp(horodatage, timezone.utc)
+                          if horodatage else None)
+
 
 def _cle(acte) -> tuple:
     """Identifie un acte, sans le confondre avec son jumeau legitime."""
@@ -101,21 +146,33 @@ def _fenetre(client, wallet: str, debut: int, fin: int,
     exactement le genre d'erreur que cet outil existe pour interdire.
     """
     for essai in range(essais):
-        out = []
+        out, decalage = [], 0
         try:
-            for page in client.list_activity(user=wallet, start=debut, end=fin,
-                                             page_size=100):
-                items = getattr(page, "items", None)
-                out.extend(items if items is not None else [page])
-                if len(out) >= PLAFOND_API:
-                    return out, True
-            return out, False
+            while decalage < PLAFOND_API:
+                lot = client.get(ACTIVITE, params={
+                    "user": wallet, "limit": PAR_REQUETE, "offset": decalage,
+                    "start": debut, "end": fin,
+                    # SANS CA, PAS DE DEPOTS -- donc pas de denominateur, donc
+                    # rien. Le service met `excludeDepositsWithdrawals=true` par
+                    # defaut et IGNORE un filtre de type qui les demande
+                    # explicitement (`type=DEPOSIT` rend zero ligne). Mesure du
+                    # 2026-08-30 : sans ce parametre, notre propre compte
+                    # affichait 0,00 $ de depots au lieu de 8,01 $ -- l'outil
+                    # perdait en silence la seule chose qu'il existe pour dire.
+                    "excludeDepositsWithdrawals": "false"}, timeout=30).json()
+                if not isinstance(lot, list):
+                    raise RuntimeError(str(lot)[:120])
+                out.extend(Acte(b) for b in lot)
+                if len(lot) < PAR_REQUETE:
+                    return out, False
+                decalage += PAR_REQUETE
+            return out, True  # le plafond de la fenetre est atteint
         except Exception as exc:  # noqa: BLE001
             message = str(exc).lower()
             if "offset" in message:
                 return out, True
-            if ("timed out" in message or "timeout" in message) \
-                    and essai < essais - 1:
+            if ("timed out" in message or "timeout" in message
+                    or "read operation" in message) and essai < essais - 1:
                 time.sleep(2 ** essai)
                 continue
             raise
@@ -199,6 +256,7 @@ def comptabiliser(actes: list) -> dict:
     })
     depots = retraits = Decimal(0)
     types = Counter()
+    orphelins: list = []
 
     for a in actes:
         t = (getattr(a, "type", "") or "").upper()
@@ -212,8 +270,20 @@ def comptabiliser(actes: list) -> dict:
             retraits += montant
             continue
 
+        if t == "REDEEM" and not getattr(a, "token_id", None):
+            # RATTACHEMENT DIFFERE. Un remboursement porte sur le MARCHE, pas
+            # sur l'une de ses deux jambes : on ne saura a quelle position il
+            # se rapporte qu'apres avoir lu tous les echanges. Le traiter tout
+            # de suite creerait une position fantome et laisserait la vraie
+            # ouverte pour toujours -- 6 soldees devenaient 5.
+            orphelins.append((getattr(a, "condition_id", None), parts, montant,
+                              getattr(a, "title", "") or ""))
+            continue
+
         jeton = jetons[getattr(a, "token_id", None)]
         jeton["titre"] = jeton["titre"] or (getattr(a, "title", "") or "")
+        jeton["condition"] = (jeton.get("condition")
+                              or getattr(a, "condition_id", None))
         if t == "REDEEM":
             jeton["redeem_parts"] += parts
             jeton["redeem_usdc"] += montant
@@ -225,6 +295,25 @@ def comptabiliser(actes: list) -> dict:
             elif cote == "SELL":
                 jeton["vente_parts"] += parts
                 jeton["vente_usdc"] += montant
+
+    # SECOND PASSAGE : chaque remboursement rejoint la position qu'il solde.
+    # On choisit, dans le meme marche, le jeton dont il reste le plus de parts
+    # -- c'est celui qui a ete rembourse. Un remboursement qu'on ne sait pas
+    # rattacher est GARDE sous sa propre cle plutot qu'ignore : perdre de
+    # l'argent recu fausserait le plancher dans le bon sens, ce qui est pire
+    # que de le fausser dans le mauvais.
+    for condition, parts, montant, titre in orphelins:
+        candidats = [(c, j) for c, j in jetons.items()
+                     if j.get("condition") == condition
+                     and j["achat_parts"] > j["vente_parts"] + j["redeem_parts"]]
+        if candidats:
+            cible = max(candidats, key=lambda cj: cj[1]["achat_parts"]
+                        - cj[1]["vente_parts"] - cj[1]["redeem_parts"])[1]
+        else:
+            cible = jetons[f"redeem:{condition}"]
+            cible["titre"] = cible["titre"] or titre
+        cible["redeem_parts"] += parts
+        cible["redeem_usdc"] += montant
 
     return {"jetons": dict(jetons), "depots": depots, "retraits": retraits,
             "types": types}
@@ -409,8 +498,8 @@ def main() -> int:
                    help="plafond d'actes lus par portefeuille")
     args = p.parse_args()
 
-    from polymarket import PublicClient
-    client = PublicClient()
+    import httpx
+    client = httpx.Client(headers={"accept": "application/json"})
 
     for wallet in args.wallets:
         try:

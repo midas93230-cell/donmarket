@@ -110,13 +110,14 @@ def echantillon(combien: int, periodes: list[str]) -> list[dict]:
 
 
 def mesurer(combien: int, periodes: list[str]) -> list[dict]:
-    from polymarket import PublicClient
+    import httpx
 
     classement = echantillon(combien, periodes)
     print(f"{len(classement)} portefeuilles uniques sur "
           f"{'+'.join(periodes)}")
 
-    client, verif, out = PublicClient(), verificateur(), []
+    client = httpx.Client(headers={"accept": "application/json"})
+    verif, out = verificateur(), []
     for rang, ligne in enumerate(classement, 1):
         try:
             mesure = sonder(client, verif, ligne["wallet"])
