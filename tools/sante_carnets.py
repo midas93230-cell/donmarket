@@ -46,6 +46,8 @@ import time
 from datetime import datetime, timezone
 
 sys.path.insert(0, ".")
+sys.path.insert(0, "tools")
+import enveloppe  # noqa: E402
 
 logging.basicConfig(level=logging.INFO, format="%(asctime)s  %(levelname)-7s %(message)s")
 logging.getLogger("httpx").setLevel(logging.WARNING)
@@ -400,12 +402,12 @@ def page(lignes: list[dict], style: str) -> str:
     </table></div>
   </section>
 
-  <footer>
-    <p>Built by Abdoul Lahad Amar. Method and source: <a href="https://github.com/midas93230-cell/donmarket">github.com/midas93230-cell/donmarket</a>.
-    Related: <a href="./app.html">The app</a> &middot; <a href="./verify.html">Can you verify a track record?</a> &middot; <a href="./work.html">Work with DON</a> &middot; <a href="./">Builders Radar</a> &middot; <a href="./python.html">Python SDK traps</a> &middot; <a href="./strategies.html">Six strategies, measured</a>.</p>
-    <p>No affiliation with Polymarket. A snapshot goes stale &mdash; re-run the script rather than trusting an old page. Nothing here is financial advice.</p>
-  </footer>
-</div>"""
+  <p>Want this run on your own set of markets, or a wallet audited the same
+  way? <a href="./work.html">Rates and how to reach me</a>.</p>
+  <p class="small">No affiliation with Polymarket. A snapshot goes stale &mdash;
+  re-run the script rather than trusting an old page. Nothing here is financial
+  advice.</p>
+""" + enveloppe.fin("health.html").replace("</main>\n", "")
 
 
 def main() -> int:
