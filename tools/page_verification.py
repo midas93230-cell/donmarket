@@ -43,6 +43,8 @@ from datetime import datetime, timezone
 from importlib import util
 
 sys.path.insert(0, ".")
+sys.path.insert(0, "tools")
+import enveloppe  # noqa: E402
 
 INSTANTANE = "docs/leaderboard-snapshot.json"
 SORTIE_HTML = "docs/verify.html"
@@ -174,20 +176,36 @@ def page(lignes: list[dict], style: str, quand: str) -> str:
         f"<td class='num'>{l.get('ouvertes', 0)}</td></tr>"
         for l in lignes)
 
-    return f"""<meta charset="utf-8">
-<title>Can you verify a Polymarket track record?</title>
-<meta name="viewport" content="width=device-width,initial-scale=1">
-<meta property="og:title" content="Can you verify a Polymarket track record?">
-<meta property="og:description" content="Yes, you can &mdash; almost nobody does. \
-Measured: the top wallets that can be read end to end match their advertised \
-PnL to within about 1%.">
-<style>{style}</style>
-<h1>Can you verify a Polymarket track record?</h1>
-<p class="lede">Measured {quand}. <b>Yes &mdash; and where the history can be
-read end to end, {len(colles)} of {len(complets)} wallets match their
-advertised PnL within 10%</b>, most within about one percent. The leaderboard
-is telling the truth.</p>
+    meilleur = max((l for l in complets if l.get("pnl_annonce")),
+                   key=lambda l: l["pnl_annonce"], default=None)
+    tuiles = enveloppe.tuile(
+        f"{len(colles)}/{len(complets)}", "", "wallets corroborated",
+        "Every wallet readable end to end matches its advertised PnL "
+        "within 10%.")
+    if meilleur:
+        tuiles += enveloppe.tuile(
+            f"${meilleur['pnl_annonce'] / 1e6:.1f}", "M", "largest verified",
+            f"{html.escape(meilleur['nom'][:20])}, reconciled against money "
+            "that actually left the account.")
+    tuiles += enveloppe.tuile(
+        f"{len(partiels)}", f"of {len(lignes)}", "too heavy to finish",
+        f"Readable in principle, but past {MAX_ACTES:,} records it is "
+        "thousands of requests and the API throttles you.")
 
+    return enveloppe.debut(
+        titre="Can you verify a Polymarket track record?",
+        chapeau=f"DONMARKET &middot; MEASURED {quand.upper()}",
+        dek=f"Yes &mdash; and where the history can be read end to end, "
+            f"<b>{len(colles)} of {len(complets)} wallets match their "
+            f"advertised PnL within 10%</b>, most within about one percent. "
+            f"The leaderboard is telling the truth.",
+        signature="Read-only &middot; No key &middot; Public APIs only "
+                  "&middot; Reproducible",
+        og="Yes, you can - almost nobody does. Measured: the top wallets that "
+           "can be read end to end match their advertised PnL to within about "
+           "1%.",
+        tuiles=tuiles) + f"""
+<section>
 <p>Every week someone posts a screenshot: <i>99.3% across 32,614 trades</i>,
 <i>$313 turned into $438K</i>. And every week the top comment says the same
 thing &mdash; <i>none of them can prove their track record is real</i>. So we
@@ -219,11 +237,17 @@ wallets run about 2,500 records a day; reading one in full is tens of thousands
 of requests. This page caps each wallet at {MAX_ACTES:,} records and says so in
 the table rather than pretending to a complete audit.</p>
 
-<table>
-<tr><th>#</th><th>Wallet</th><th>Claimed PnL ($)</th><th>Records readable</th>
-<th>Net withdrawn ($)</th><th>Verdict</th><th>Open positions</th></tr>
-{rangs}
-</table>
+</section>
+
+<section>
+<h2>The measurement</h2>
+<div class="scroller"><table>
+<thead><tr><th class="l">#</th><th class="l">Wallet</th>
+<th class="num">Claimed PnL ($)</th><th class="num">Records read</th>
+<th class="num">Net withdrawn ($)</th><th class="l">Verdict</th>
+<th class="num">Open</th></tr></thead>
+<tbody>{rangs}</tbody>
+</table></div>
 
 <h2>And now the part nobody expects</h2>
 <p class="lede">Of the {len(complets)} wallets read end to end,
@@ -262,10 +286,10 @@ on a losing account.</p>
 orders. It refuses to state a total while positions are open or while events it
 cannot account for remain, and it says which:</p>
 <pre>python tools/verifier_portefeuille.py 0xWALLET --annonce 438000</pre>
-<p><a href="https://github.com/midas93230-cell/donmarket">Source</a> &middot;
-<a href="health.html">Daily order-book health</a> &middot;
-<a href="app.html">Exit tool for unsellable positions</a></p>
-"""
+<p>Want this run on a specific wallet, or the same treatment on a set of
+markets? <a href="./work.html">Rates and how to reach me</a>.</p>
+</section>
+""" + enveloppe.fin("verify.html")
 
 
 def main() -> int:

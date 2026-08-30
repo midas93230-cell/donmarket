@@ -169,15 +169,34 @@
     .bar{transition:width .5s cubic-bezier(.22,.61,.36,1)}
   }
 
-.small{opacity:.75;font-size:.9em}</style>
-<h1>Work with DON</h1>
-<p class="lede">On-chain wallet audits and order-book measurement for
-prediction markets. Everything below is built on tooling that is public, open
-source and reproducible &mdash; you can check my numbers before you pay me
-anything.</p>
-
-<p class="lede">The most recent piece of work on this site: 7 of 7 wallets I could read end to end match their advertised PnL, the closest being <b>$22,053,934 verified to 0.1%</b> against money that actually left the account.</p>
-
+  .lede{font-family:var(--display); font-size:clamp(1.05rem,2.2vw,1.28rem);
+        line-height:1.55; color:var(--ink-2); max-width:64ch; margin:0 0 18px}
+  .lede b{color:var(--ink)}
+  section{margin-top:42px}
+  pre{font-family:var(--data); font-size:13px; line-height:1.5;
+      background:var(--surface-2); border:1px solid var(--rule);
+      padding:14px 16px; overflow-x:auto; margin:18px 0; max-width:68ch}
+  code{font-family:var(--data); font-size:.92em}
+  td.num,th.num{text-align:right; font-family:var(--data);
+                font-variant-numeric:tabular-nums; white-space:nowrap}
+  tbody td{padding:9px 14px; border-top:1px solid var(--rule)}
+  tbody tr:hover{background:var(--surface-2)}
+  .small{font-size:13px; color:var(--ink-3)}
+  .foot{margin-top:56px; padding-top:20px; border-top:1px solid var(--rule);
+        font-size:13.5px; color:var(--ink-3)}
+  .foot a{color:var(--teal)}
+  a{color:var(--teal)}
+</style>
+<div class="wrap stack">
+<header class="masthead stack">
+  <p class="eyebrow">DONMARKET &amp;middot; RATES AS OF 30 AUGUST 2026</p>
+  <h1>Work with DON</h1>
+  <p class="dek">On-chain wallet audits and order-book measurement for prediction markets. Every number below comes from tooling that is public and reproducible &mdash; check my work before you pay me anything.</p>
+  <p class="byline">Fixed prices &middot; USDC on Polygon &middot; Open source &middot; No trading signals</p>
+</header>
+<div class='thesis'><div class='tile'><span class='lab'>largest audit</span><span class='n'>$22.1<small> M verified</small></span><p>Reconciled to 0.1% against money that actually left the account, on chain.</p></div><div class='tile'><span class='lab'>wallets checked</span><span class='n'>7/7</span><p>Every wallet I could read end to end matched its advertised PnL.</p></div><div class='tile'><span class='lab'>measured daily</span><span class='n'>299<small> books</small></span><p>Verdicts archived every day since 26 August &mdash; an archive nobody starting today can rebuild.</p></div><div class='tile'><span class='lab'>custom work</span><span class='n'>$50<small> /hour</small></span><p>Five hours minimum, scoped in writing before anything starts.</p></div></div>
+<main>
+<section>
 <h2>What I do</h2>
 <p><b>I measure things about prediction markets and I say what I cannot
 measure.</b> The audit tool refuses to state a total while positions are open
@@ -185,14 +204,21 @@ or while there are events it cannot account for, and it names them. That
 restraint is the product: a number you can defend is worth more than a number
 that looks good.</p>
 
-<h2>Fixed prices</h2>
-<table>
-<tr><th>Engagement</th><th>Price</th></tr>
-<tr><td><b>Wallet audit</b><br><span class='small'>One wallet, reconciled on chain end to end: deposits, withdrawals, settled versus open positions, guaranteed floor, and an explicit list of what cannot be verified. Delivered as a report you can publish.</span></td><td class='num'><b>$150</b></td></tr><tr><td><b>Order-book health report</b><br><span class='small'>A set of markets measured over several days: which books are tradable, which are dead, spread and tick, depth on both sides, and how long each verdict has held.</span></td><td class='num'><b>$300</b></td></tr><tr><td><b>Archive access</b><br><span class='small'>The daily verdict archive as JSON, updated every day. Nobody starting today can rebuild it &mdash; it only exists because it was measured day after day.</span></td><td class='num'><b>$50</b><br><span class="small">per month</span></td></tr>
-</table>
-<p>Anything that does not fit the boxes above: <b>$50/hour</b>, five hours
-minimum, scoped in writing before we start.</p>
+</section>
 
+<section>
+<h2>Fixed prices</h2>
+<p class="sub">A fixed price means you can decide in ten seconds instead of
+estimating my hours. Scope is agreed in writing first, either way.</p>
+<div class="scroller"><table>
+<thead><tr><th class="l">Engagement</th><th class="num">Price</th></tr></thead>
+<tbody><tr><td><span class='name'>Wallet audit</span><br><span class='small'>One wallet, reconciled on chain end to end: deposits, withdrawals, settled versus open positions, guaranteed floor, and an explicit list of what cannot be verified. Delivered as a report you can publish.</span></td><td class='num'><b>$150</b></td></tr><tr><td><span class='name'>Order-book health report</span><br><span class='small'>A set of markets measured over several days: which books are tradable, which are dead, spread and tick, depth on both sides, and how long each verdict has held.</span></td><td class='num'><b>$300</b></td></tr><tr><td><span class='name'>Archive access</span><br><span class='small'>The daily verdict archive as JSON, updated every day. Nobody starting today can rebuild it &mdash; it only exists because it was measured day after day.</span></td><td class='num'><b>$50</b><br><span class="small">per month</span></td></tr></tbody>
+</table></div>
+<p>Anything that does not fit the boxes above: <b>$50/hour</b>, five hours
+minimum.</p>
+</section>
+
+<section>
 <h2>Why me</h2>
 <p>Two days ago I published that Polymarket track records were structurally
 unverifiable. I was wrong, someone corrected me, and I said so publicly on the
@@ -204,22 +230,40 @@ out, tells you, and fixes it the same day.</p>
 <a href="./verify.html">wallet verification</a> &middot;
 <a href="./health.html">daily order-book health</a> (299 books measured in the latest run) &middot;
 <a href="https://github.com/midas93230-cell/donmarket">source</a>.</p>
+</section>
 
+<section>
 <h2>How payment works</h2>
-<p><b>USDC on Polygon</b>, which is how this whole ecosystem already pays.
-Half up front on engagements over $300, the rest on delivery. Bank transfer
-possible but slower. Invoices are issued under my legal name.</p>
+<div class="callout">
+<h3>USDC on Polygon</h3>
+<p>Which is how this ecosystem already pays. Half up front on engagements over
+$300, the rest on delivery. Bank transfer possible but slower. Invoices are
+issued under my legal name.</p>
+</div>
+</section>
 
+<section>
 <h2>What I do not sell</h2>
 <p>No trading signals, no copy-trading, no returns of any kind, and no
 predictions about which way a market will go. I sell measurement and the
 tooling around it. If a number cannot be verified, the deliverable says so
 &mdash; that is the whole point.</p>
+</section>
 
+<section>
 <h2>Getting in touch</h2>
 <p>Email <a href="mailto:midas93230@gmail.com">midas93230@gmail.com</a> with what you want measured.
 A useful first message is one wallet address or one market slug, and the
 question you actually want answered.</p>
-
-<p class="small">Page generated 30 August 2026, 17:41 UTC; the figures above are read from the
+<p class="small">Page generated 30 August 2026. The figures above are read from the
 latest measurement rather than typed in, so they cannot quietly go stale.</p>
+</section>
+</main>
+<footer class="foot">
+<p><a href='./'>Builders Radar</a> &middot; <a href='./health.html'>Book health</a> &middot; <a href='./verify.html'>Wallet verification</a> &middot; <b>Work with DON</b> &middot; <a href='./app.html'>The app</a></p>
+<p>Built by DON. Method and source:
+<a href="https://github.com/midas93230-cell/donmarket">github.com/midas93230-cell/donmarket</a>.
+Everything here is measured from public APIs and reproducible &mdash; no key,
+no authentication, no orders placed.</p>
+</footer>
+</div>
