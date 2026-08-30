@@ -1,5 +1,5 @@
 {
- "mesure": "2026-08-30T15:45:53.020298+00:00",
+ "mesure": "2026-08-30T16:50:30.463864+00:00",
  "plafond_api": 5000,
  "portefeuilles": [
   {
@@ -8,13 +8,13 @@
    "wallet": "0x204f72f35326db932158cba6adff0b9a1da95e14",
    "periode": "ALL",
    "pnl_annonce": 23628089.91326492,
-   "actes": 6000,
-   "plafond_atteint": true,
+   "actes": 30000,
+   "plafond_atteint": false,
    "depots": 0.0,
-   "retraits": 5958000.0,
-   "ouvertes": 746,
-   "sorti_net": 5958000.0,
-   "ecart_pct": 74.78425034833158
+   "retraits": 6000400.0,
+   "ouvertes": 2673,
+   "sorti_net": 6000400.0,
+   "ecart_pct": 74.6048029187863
   },
   {
    "rang": 2,
@@ -22,13 +22,13 @@
    "wallet": "0x56687bf447db6ffa42ffe2204a05edaa20f55839",
    "periode": "ALL",
    "pnl_annonce": 22053933.752321757,
-   "actes": 6000,
+   "actes": 16166,
    "plafond_atteint": false,
-   "depots": 7947409.118134,
-   "retraits": 41831013.463106,
-   "ouvertes": 17,
-   "sorti_net": 33883604.344972,
-   "ecart_pct": 53.63973033339169
+   "depots": 20099432.549831,
+   "retraits": 42131013.463106,
+   "ouvertes": 16,
+   "sorti_net": 22031580.913275,
+   "ecart_pct": 0.10135533777235747
   },
   {
    "rang": 3,
@@ -36,13 +36,13 @@
    "wallet": "0x1f2dd6d473f3e824cd2f8a89d9c69fb96f6ad0cf",
    "periode": "ALL",
    "pnl_annonce": 16619506.631730152,
-   "actes": 6000,
+   "actes": 23878,
    "plafond_atteint": false,
-   "depots": 6359392.77298,
-   "retraits": 33340037.594354,
-   "ouvertes": 13,
-   "sorti_net": 26980644.821374,
-   "ecart_pct": 62.34323568824988
+   "depots": 17361837.330977,
+   "retraits": 33945400.594354,
+   "ouvertes": 52,
+   "sorti_net": 16583563.263377003,
+   "ecart_pct": 0.2162721743166878
   },
   {
    "rang": 4,
@@ -50,11 +50,11 @@
    "wallet": "0x2005d16a84ceefa912d4e380cd32e7ff827875ea",
    "periode": "ALL",
    "pnl_annonce": 13054645.865724476,
-   "actes": 6000,
+   "actes": 30000,
    "plafond_atteint": false,
    "depots": 0.0,
    "retraits": 0.0,
-   "ouvertes": 1037,
+   "ouvertes": 3252,
    "sorti_net": 0.0,
    "ecart_pct": 100.0
   },
@@ -64,13 +64,13 @@
    "wallet": "0x6a72f61820b26b1fe4d956e17b6dc2a1ea3033ee",
    "periode": "ALL",
    "pnl_annonce": 11386690.875513865,
-   "actes": 6000,
+   "actes": 30000,
    "plafond_atteint": false,
-   "depots": 400454.40367,
-   "retraits": 881038.379452,
-   "ouvertes": 70,
-   "sorti_net": 480583.975782,
-   "ecart_pct": 95.77942370583314
+   "depots": 2098853.693221,
+   "retraits": 4081038.379452,
+   "ouvertes": 337,
+   "sorti_net": 1982184.6862309999,
+   "ecart_pct": 82.59209187373722
   },
   {
    "rang": 6,
@@ -82,7 +82,7 @@
    "plafond_atteint": false,
    "depots": 11016305.396799,
    "retraits": 20154702.341409,
-   "ouvertes": 5,
+   "ouvertes": 0,
    "sorti_net": 9138396.944610002,
    "ecart_pct": 1.0818786556494584
   },
@@ -96,7 +96,7 @@
    "plafond_atteint": false,
    "depots": 5293033.359719,
    "retraits": 13791189.130031,
-   "ouvertes": 2,
+   "ouvertes": 0,
    "sorti_net": 8498155.770312,
    "ecart_pct": 6.236332578201866
   },
@@ -110,7 +110,7 @@
    "plafond_atteint": false,
    "depots": 9599844.938045,
    "retraits": 18433312.856201,
-   "ouvertes": 6,
+   "ouvertes": 1,
    "sorti_net": 8833467.918156,
    "ecart_pct": 1.0650450680390002
   },
@@ -124,7 +124,7 @@
    "plafond_atteint": false,
    "depots": 7884452.998344,
    "retraits": 16589952.12555,
-   "ouvertes": 8,
+   "ouvertes": 2,
    "sorti_net": 8705499.127206,
    "ecart_pct": 0.05136480756170375
   },
@@ -138,7 +138,7 @@
    "plafond_atteint": false,
    "depots": 8378295.782646,
    "retraits": 16729202.250282,
-   "ouvertes": 4,
+   "ouvertes": 1,
    "sorti_net": 8350906.467636,
    "ecart_pct": 1.4638383309901593
   }

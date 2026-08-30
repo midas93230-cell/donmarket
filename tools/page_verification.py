@@ -55,7 +55,7 @@ PLAFOND_API = 5000
 # ~2 500 actes par jour, soit des dizaines de milliers de requetes pour tout
 # lire. On borne donc, et la page DIT ce qu'elle a lu plutot que de laisser
 # croire a un audit complet.
-MAX_ACTES = 6000
+MAX_ACTES = 30000
 
 
 def verificateur():
