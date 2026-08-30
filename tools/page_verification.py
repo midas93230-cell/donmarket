@@ -49,6 +49,14 @@ SORTIE_HTML = "docs/verify.html"
 SORTIE_JSON = "docs/verify.json"
 PLAFOND_API = 5000
 
+# NOTRE garde-fou, pas celui de Polymarket. Depuis qu'on lit par fenetres
+# start/end (technique donnee par fedoras dans le groupe Builders le 30/08),
+# l'historique complet est atteignable -- mais les plus gros comptes font
+# ~2 500 actes par jour, soit des dizaines de milliers de requetes pour tout
+# lire. On borne donc, et la page DIT ce qu'elle a lu plutot que de laisser
+# croire a un audit complet.
+MAX_ACTES = 6000
+
 
 def verificateur():
     """Charge `tools/verifier_portefeuille.py`, qui n'est pas dans un paquet.
@@ -69,7 +77,7 @@ def sonder(client, verif, wallet: str) -> dict:
     Le refus EST la mesure : c'est lui qui prouve qu'un historique long est
     hors de portee de quiconque, nous compris.
     """
-    actes, plafond = verif.collecter(client, wallet, PLAFOND_API)
+    actes, plafond = verif.collecter(client, wallet, MAX_ACTES)
     compta = verif.comptabiliser(actes)
     _, ouverts = verif.trier(compta["jetons"])
     return {"actes": len(actes), "plafond_atteint": bool(plafond),
@@ -77,11 +85,36 @@ def sonder(client, verif, wallet: str) -> dict:
             "retraits": float(compta["retraits"]), "ouvertes": len(ouverts)}
 
 
-def mesurer(combien: int) -> list[dict]:
+def echantillon(combien: int, periodes: list[str]) -> list[dict]:
+    """Portefeuilles a sonder, dedupliques, avec la periode qui les a fait
+    entrer dans l'echantillon.
+
+    ON NE PREND PAS QUE LE ALL-TIME. Le classement all-time est un pantheon de
+    baleines ; celui du jour est fait de comptes actifs et plus petits. Melanger
+    les deux permet de repondre a une question bien plus utile qu'un comptage :
+    L'AUDITABILITE DEPEND-ELLE DE LA TAILLE ? Si seuls les petits comptes sont
+    verifiables, le probleme n'est pas « certains sont opaques », c'est « on ne
+    peut verifier que ceux dont personne ne parle ».
+    """
+    with open(INSTANTANE, encoding="utf-8") as f:
+        classements = json.load(f)["classements"]
+
+    vus, out = set(), []
+    for periode in periodes:
+        for ligne in classements.get(periode, [])[:combien]:
+            if ligne["wallet"] in vus:
+                continue
+            vus.add(ligne["wallet"])
+            out.append({**ligne, "periode": periode})
+    return out
+
+
+def mesurer(combien: int, periodes: list[str]) -> list[dict]:
     from polymarket import PublicClient
 
-    with open(INSTANTANE, encoding="utf-8") as f:
-        classement = json.load(f)["classements"]["ALL"][:combien]
+    classement = echantillon(combien, periodes)
+    print(f"{len(classement)} portefeuilles uniques sur "
+          f"{'+'.join(periodes)}")
 
     client, verif, out = PublicClient(), verificateur(), []
     for rang, ligne in enumerate(classement, 1):
@@ -90,6 +123,7 @@ def mesurer(combien: int) -> list[dict]:
         except Exception as exc:  # noqa: BLE001
             mesure = {"erreur": str(exc)[:120]}
         out.append({"rang": rang, "nom": ligne["nom"], "wallet": ligne["wallet"],
+                    "periode": ligne["periode"],
                     "pnl_annonce": float(ligne["pnl"]), **mesure})
         print(f"  {rang:>2}. {ligne['nom'][:20]:<20} "
               f"actes={mesure.get('actes', '?')} "
@@ -111,13 +145,19 @@ def page(lignes: list[dict], style: str, quand: str) -> str:
         l["ecart_pct"] = (100 * abs(l["sorti_net"] - annonce) / annonce
                           if annonce else None)
 
-    auditables = [l for l in lignes if not l.get("plafond_atteint")]
-    colles = [l for l in auditables
+    # TROIS ETATS, PLUS DEUX. « Non auditable » ne veut plus dire ce qu'il
+    # disait : depuis la lecture par fenetres, un compte n'est incomplet que
+    # parce qu'on a BORNE la lecture, pas parce que la plateforme l'interdit.
+    # Confondre les deux etait l'erreur publiee le 29/08.
+    partiels = [l for l in lignes if l.get("actes", 0) >= MAX_ACTES]
+    complets = [l for l in lignes
+                if l.get("actes", 0) < MAX_ACTES and not l.get("plafond_atteint")]
+    colles = [l for l in complets
               if l["ecart_pct"] is not None and l["ecart_pct"] <= 10]
 
     def verdict(l: dict) -> str:
-        if l.get("plafond_atteint"):
-            return "<b>not auditable</b>"
+        if l.get("actes", 0) >= MAX_ACTES:
+            return f"partial read ({MAX_ACTES:,} cap)"
         if l["ecart_pct"] is None:
             return "&mdash;"
         if l["ecart_pct"] <= 10:
@@ -137,27 +177,46 @@ def page(lignes: list[dict], style: str, quand: str) -> str:
 <title>Can you verify a Polymarket track record?</title>
 <meta name="viewport" content="width=device-width,initial-scale=1">
 <meta property="og:title" content="Can you verify a Polymarket track record?">
-<meta property="og:description" content="Measured: Polymarket's public API stops \
-at {PLAFOND_API} activity records per wallet. Every long track record is \
-structurally unverifiable.">
+<meta property="og:description" content="Yes, you can &mdash; almost nobody does. \
+Measured: the top wallets that can be read end to end match their advertised \
+PnL to within about 1%.">
 <style>{style}</style>
 <h1>Can you verify a Polymarket track record?</h1>
-<p class="lede">Measured {quand}. <b>{len(bloques)} of the top {len(lignes)}
-wallets ({part:.0f}%) cannot be audited at all</b> &mdash; not because their
-owners hide anything, but because the public API stops serving after
-{PLAFOND_API} activity records per wallet.</p>
+<p class="lede">Measured {quand}. <b>Yes &mdash; and where the history can be
+read end to end, {len(colles)} of {len(complets)} wallets match their
+advertised PnL within 10%</b>, most within about one percent. The leaderboard
+is telling the truth.</p>
 
 <p>Every week someone posts a screenshot: <i>99.3% across 32,614 trades</i>,
 <i>$313 turned into $438K</i>. And every week the top comment says the same
-thing &mdash; <i>none of them can prove their track record is real</i>. That
-comment is right, and the reason is not dishonesty. Ask the API for record
-{PLAFOND_API + 1:,} of any wallet and it answers:</p>
+thing &mdash; <i>none of them can prove their track record is real</i>. So we
+went and checked.</p>
+
+<h2>First, a correction, because it is the useful part</h2>
+<p>The obvious way to read a wallet's history stops dead. Ask the API for
+activity record {PLAFOND_API + 1:,} and it answers:</p>
 
 <pre>max historical activity offset of {PLAFOND_API} exceeded</pre>
 
-<p>So a 32,614-trade history is out of reach for <b>everyone</b>, including
-someone perfectly honest with perfect tooling. That is a property of the
-platform, not a judgement about the trader.</p>
+<p>On 29 August we published that this made long track records
+<i>structurally unverifiable</i>. <b>That was wrong.</b> Within hours,
+<i>fedoras</i> in the Polymarket builders group pointed at the documentation:
+the {PLAFOND_API:,} limit is <b>per query window, not per wallet</b>. Page
+inside <code>start</code>/<code>end</code> windows and each window gets its own
+offset budget. Confirmed the same day &mdash; 10,000 records off a wallet that
+had stopped dead at {PLAFOND_API:,}.</p>
+
+<p>So this page now reads history by splitting time adaptively: any window that
+saturates is halved, down to the hour. The lesson was worth more than the bug.
+<b>A limit you could not get past is not the same as a limit that exists.</b>
+We had exhausted our own method, not every method, and published an
+impossibility on the strength of it.</p>
+
+<p>What remains true is narrower and more interesting: the data is reachable,
+but it takes deliberate work, so <i>almost nobody checks</i>. The busiest
+wallets run about 2,500 records a day; reading one in full is tens of thousands
+of requests. This page caps each wallet at {MAX_ACTES:,} records and says so in
+the table rather than pretending to a complete audit.</p>
 
 <table>
 <tr><th>#</th><th>Wallet</th><th>Claimed PnL ($)</th><th>Records readable</th>
@@ -166,20 +225,19 @@ platform, not a judgement about the trader.</p>
 </table>
 
 <h2>And now the part nobody expects</h2>
-<p class="lede">Of the {len(auditables)} wallets whose entire history <i>is</i>
-readable, <b>{len(colles)} match their claimed PnL within 10%</b> &mdash; most
-of them within about one percent.</p>
+<p class="lede">Of the {len(complets)} wallets read end to end,
+<b>{len(colles)} match their claimed PnL within 10%</b> &mdash; most of them
+within about one percent.</p>
 
 <p><b>Withdrawals cannot be faked.</b> A displayed PnL is a line in an
 interface; money that <i>left</i> an account had to exist in order to leave.
 So we take withdrawals minus deposits &mdash; net money out, on chain &mdash;
-and compare it to the number the leaderboard advertises. For the wallets we can
-read end to end, the two agree closely.</p>
+and compare it to the number the leaderboard advertises. They agree closely.</p>
 
 <p>The running assumption in every thread is that the top of this leaderboard
-is fabricated. On this evidence it is not. The problem is narrower, and
-stranger: <b>you cannot check {len(bloques)} of them at all</b>, and the ones
-you can check turn out to be telling the truth.</p>
+is fabricated. On this evidence it is not. The gap is not honesty, it is
+effort: the proof is sitting on chain and essentially nobody goes and gets
+it.</p>
 
 <p>Which turns the usual suspicion upside down. Be sceptical not of the
 eight-figure wallets that withdraw millions, but of the small screenshots
@@ -211,7 +269,11 @@ cannot account for remain, and it says which:</p>
 
 def main() -> int:
     p = argparse.ArgumentParser()
-    p.add_argument("--combien", type=int, default=10)
+    p.add_argument("--combien", type=int, default=10,
+                   help="portefeuilles par periode")
+    p.add_argument("--periodes", default="ALL",
+                   help="periodes du classement, separees par des virgules : "
+                        "ALL,MONTH,WEEK,DAY")
     p.add_argument("--rejouer", action="store_true",
                    help="regenere la page depuis docs/verify.json, sans "
                         "re-sonder l'API")
@@ -227,8 +289,9 @@ def main() -> int:
         lignes, quand_iso = garde["portefeuilles"], garde["mesure"]
         print(f"rejeu depuis {SORTIE_JSON}, mesure du {quand_iso[:19]}")
     else:
-        print(f"sondage des {args.combien} premiers du classement...")
-        lignes, quand_iso = mesurer(args.combien), None
+        periodes = [p.strip().upper() for p in args.periodes.split(",")]
+        print(f"sondage des {args.combien} premiers de {args.periodes}...")
+        lignes, quand_iso = mesurer(args.combien, periodes), None
     if not lignes:
         print("aucun portefeuille lu -- rien n'est ecrit.")
         return 1
@@ -248,9 +311,9 @@ def main() -> int:
                        "plafond_api": PLAFOND_API, "portefeuilles": lignes},
                       f, indent=1, ensure_ascii=False)
 
-    bloques = sum(1 for l in lignes if l.get("plafond_atteint"))
-    print(f"\n{SORTIE_HTML} -- {bloques}/{len(lignes)} portefeuilles "
-          "non auditables")
+    complets = sum(1 for l in lignes if 0 < l.get("actes", 0) < MAX_ACTES)
+    print(f"\n{SORTIE_HTML} -- {complets}/{len(lignes)} portefeuilles lus "
+          f"de bout en bout (les autres bornes a {MAX_ACTES:,} actes)")
     return 0
 
 

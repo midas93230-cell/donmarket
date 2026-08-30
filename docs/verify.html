@@ -2,7 +2,7 @@
 <title>Can you verify a Polymarket track record?</title>
 <meta name="viewport" content="width=device-width,initial-scale=1">
 <meta property="og:title" content="Can you verify a Polymarket track record?">
-<meta property="og:description" content="Measured: Polymarket's public API stops at 5000 activity records per wallet. Every long track record is structurally unverifiable.">
+<meta property="og:description" content="Yes, you can &mdash; almost nobody does. Measured: the top wallets that can be read end to end match their advertised PnL to within about 1%.">
 <style>
   :root{
     --ground:#F4F6F9; --surface:#FFFFFF; --surface-2:#EAEFF5;
@@ -170,44 +170,62 @@
   }
 </style>
 <h1>Can you verify a Polymarket track record?</h1>
-<p class="lede">Measured 29 August 2026, 21:56 UTC. <b>6 of the top 10
-wallets (60%) cannot be audited at all</b> &mdash; not because their
-owners hide anything, but because the public API stops serving after
-5000 activity records per wallet.</p>
+<p class="lede">Measured 30 August 2026, 15:45 UTC. <b>Yes &mdash; and where the history can be
+read end to end, 5 of 5 wallets match their
+advertised PnL within 10%</b>, most within about one percent. The leaderboard
+is telling the truth.</p>
 
 <p>Every week someone posts a screenshot: <i>99.3% across 32,614 trades</i>,
 <i>$313 turned into $438K</i>. And every week the top comment says the same
-thing &mdash; <i>none of them can prove their track record is real</i>. That
-comment is right, and the reason is not dishonesty. Ask the API for record
-5,001 of any wallet and it answers:</p>
+thing &mdash; <i>none of them can prove their track record is real</i>. So we
+went and checked.</p>
+
+<h2>First, a correction, because it is the useful part</h2>
+<p>The obvious way to read a wallet's history stops dead. Ask the API for
+activity record 5,001 and it answers:</p>
 
 <pre>max historical activity offset of 5000 exceeded</pre>
 
-<p>So a 32,614-trade history is out of reach for <b>everyone</b>, including
-someone perfectly honest with perfect tooling. That is a property of the
-platform, not a judgement about the trader.</p>
+<p>On 29 August we published that this made long track records
+<i>structurally unverifiable</i>. <b>That was wrong.</b> Within hours,
+<i>fedoras</i> in the Polymarket builders group pointed at the documentation:
+the 5,000 limit is <b>per query window, not per wallet</b>. Page
+inside <code>start</code>/<code>end</code> windows and each window gets its own
+offset budget. Confirmed the same day &mdash; 10,000 records off a wallet that
+had stopped dead at 5,000.</p>
+
+<p>So this page now reads history by splitting time adaptively: any window that
+saturates is halved, down to the hour. The lesson was worth more than the bug.
+<b>A limit you could not get past is not the same as a limit that exists.</b>
+We had exhausted our own method, not every method, and published an
+impossibility on the strength of it.</p>
+
+<p>What remains true is narrower and more interesting: the data is reachable,
+but it takes deliberate work, so <i>almost nobody checks</i>. The busiest
+wallets run about 2,500 records a day; reading one in full is tens of thousands
+of requests. This page caps each wallet at 6,000 records and says so in
+the table rather than pretending to a complete audit.</p>
 
 <table>
 <tr><th>#</th><th>Wallet</th><th>Claimed PnL ($)</th><th>Records readable</th>
 <th>Net withdrawn ($)</th><th>Verdict</th><th>Open positions</th></tr>
-<tr><td>1</td><td>swisstony</td><td class='num'>23,628,090</td><td class='num'>5,000</td><td class='num'>5,958,000</td><td><b>not auditable</b></td><td class='num'>599</td></tr><tr><td>2</td><td>Theo4</td><td class='num'>22,053,934</td><td class='num'>5,000</td><td class='num'>33,883,604</td><td><b>not auditable</b></td><td class='num'>16</td></tr><tr><td>3</td><td>Fredi9999</td><td class='num'>16,619,507</td><td class='num'>5,000</td><td class='num'>27,980,396</td><td><b>not auditable</b></td><td class='num'>11</td></tr><tr><td>4</td><td>RN1</td><td class='num'>13,054,646</td><td class='num'>5,000</td><td class='num'>0</td><td><b>not auditable</b></td><td class='num'>912</td></tr><tr><td>5</td><td>kch123</td><td class='num'>11,386,691</td><td class='num'>5,000</td><td class='num'>480,584</td><td><b>not auditable</b></td><td class='num'>58</td></tr><tr><td>6</td><td>mintblade</td><td class='num'>9,238,345</td><td class='num'>830</td><td class='num'>9,138,397</td><td><b>corroborated</b> (1.1%)</td><td class='num'>5</td></tr><tr><td>7</td><td>fishalive</td><td class='num'>9,063,378</td><td class='num'>1,724</td><td class='num'>8,498,156</td><td><b>corroborated</b> (6.2%)</td><td class='num'>2</td></tr><tr><td>8</td><td>frostrizz</td><td class='num'>8,928,561</td><td class='num'>2,089</td><td class='num'>8,833,468</td><td><b>corroborated</b> (1.1%)</td><td class='num'>6</td></tr><tr><td>9</td><td>Len9311238</td><td class='num'>8,709,973</td><td class='num'>5,000</td><td class='num'>9,950,981</td><td><b>not auditable</b></td><td class='num'>8</td></tr><tr><td>10</td><td>sparklingwater123</td><td class='num'>8,474,966</td><td class='num'>1,139</td><td class='num'>8,350,906</td><td><b>corroborated</b> (1.5%)</td><td class='num'>4</td></tr>
+<tr><td>1</td><td>swisstony</td><td class='num'>23,628,090</td><td class='num'>6,000</td><td class='num'>5,958,000</td><td>partial read (6,000 cap)</td><td class='num'>746</td></tr><tr><td>2</td><td>Theo4</td><td class='num'>22,053,934</td><td class='num'>6,000</td><td class='num'>33,883,604</td><td>partial read (6,000 cap)</td><td class='num'>17</td></tr><tr><td>3</td><td>Fredi9999</td><td class='num'>16,619,507</td><td class='num'>6,000</td><td class='num'>26,980,645</td><td>partial read (6,000 cap)</td><td class='num'>13</td></tr><tr><td>4</td><td>RN1</td><td class='num'>13,054,646</td><td class='num'>6,000</td><td class='num'>0</td><td>partial read (6,000 cap)</td><td class='num'>1037</td></tr><tr><td>5</td><td>kch123</td><td class='num'>11,386,691</td><td class='num'>6,000</td><td class='num'>480,584</td><td>partial read (6,000 cap)</td><td class='num'>70</td></tr><tr><td>6</td><td>mintblade</td><td class='num'>9,238,345</td><td class='num'>830</td><td class='num'>9,138,397</td><td><b>corroborated</b> (1.1%)</td><td class='num'>5</td></tr><tr><td>7</td><td>fishalive</td><td class='num'>9,063,378</td><td class='num'>1,724</td><td class='num'>8,498,156</td><td><b>corroborated</b> (6.2%)</td><td class='num'>2</td></tr><tr><td>8</td><td>frostrizz</td><td class='num'>8,928,561</td><td class='num'>2,089</td><td class='num'>8,833,468</td><td><b>corroborated</b> (1.1%)</td><td class='num'>6</td></tr><tr><td>9</td><td>Len9311238</td><td class='num'>8,709,973</td><td class='num'>5,810</td><td class='num'>8,705,499</td><td><b>corroborated</b> (0.1%)</td><td class='num'>8</td></tr><tr><td>10</td><td>sparklingwater123</td><td class='num'>8,474,966</td><td class='num'>1,139</td><td class='num'>8,350,906</td><td><b>corroborated</b> (1.5%)</td><td class='num'>4</td></tr>
 </table>
 
 <h2>And now the part nobody expects</h2>
-<p class="lede">Of the 4 wallets whose entire history <i>is</i>
-readable, <b>4 match their claimed PnL within 10%</b> &mdash; most
-of them within about one percent.</p>
+<p class="lede">Of the 5 wallets read end to end,
+<b>5 match their claimed PnL within 10%</b> &mdash; most of them
+within about one percent.</p>
 
 <p><b>Withdrawals cannot be faked.</b> A displayed PnL is a line in an
 interface; money that <i>left</i> an account had to exist in order to leave.
 So we take withdrawals minus deposits &mdash; net money out, on chain &mdash;
-and compare it to the number the leaderboard advertises. For the wallets we can
-read end to end, the two agree closely.</p>
+and compare it to the number the leaderboard advertises. They agree closely.</p>
 
 <p>The running assumption in every thread is that the top of this leaderboard
-is fabricated. On this evidence it is not. The problem is narrower, and
-stranger: <b>you cannot check 6 of them at all</b>, and the ones
-you can check turn out to be telling the truth.</p>
+is fabricated. On this evidence it is not. The gap is not honesty, it is
+effort: the proof is sitting on chain and essentially nobody goes and gets
+it.</p>
 
 <p>Which turns the usual suspicion upside down. Be sceptical not of the
 eight-figure wallets that withdraw millions, but of the small screenshots

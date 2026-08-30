@@ -43,6 +43,7 @@ from __future__ import annotations
 
 import argparse
 import sys
+import time
 from collections import Counter, defaultdict
 from decimal import Decimal
 
@@ -65,30 +66,124 @@ MOUVEMENTS = {"SPLIT", "MERGE", "CONVERSION"}
 # laquelle personne ne prouve rien sur cette place de marche.
 PLAFOND_API = 5000
 
+# Avant Polymarket : borne basse du decoupage temporel. 2020-01-01 UTC.
+DEBUT_POLYMARKET = 1577836800
+
+# En dessous d'une heure, on cesse de couper. Une heure saturee a 5 000 actes
+# signalerait un compte a plus d'un acte par seconde en continu -- si ca arrive,
+# c'est un fait a publier, pas une fenetre a redecouper indefiniment.
+FENETRE_MIN = 3600
+
+# Pause entre deux fenetres. Le coût d'etre poli avec une API gratuite.
+PAUSE = 0.25
+
+
+def _cle(acte) -> tuple:
+    """Identifie un acte, sans le confondre avec son jumeau legitime."""
+    return (getattr(acte, "transaction_hash", None), getattr(acte, "type", None),
+            getattr(acte, "timestamp", None), getattr(acte, "token_id", None),
+            str(getattr(acte, "shares", None)), str(getattr(acte, "amount", None)))
+
+
+def _fenetre(client, wallet: str, debut: int, fin: int,
+             essais: int = 4) -> tuple[list, bool]:
+    """Lit UNE fenetre temporelle. Rend (actes, saturee).
+
+    REESSAYER N'EST PAS DU CONFORT ICI. Lire un gros portefeuille en profondeur
+    demande des milliers de requetes ; mesure du 2026-08-30 : 5 des 10 premiers
+    du classement sont tombes en « read operation timed out », alors que les
+    memes passaient seuls quelques minutes plus tot. Sans reprise, la moitie de
+    l'echantillon disparait pour une raison qui n'a rien a voir avec les
+    donnees -- et une etude amputee au hasard ne vaut rien.
+
+    La fenetre est relue DEPUIS LE DEBUT a chaque essai : un lot partiel garde
+    apres une coupure produirait un trou silencieux au milieu de l'historique,
+    exactement le genre d'erreur que cet outil existe pour interdire.
+    """
+    for essai in range(essais):
+        out = []
+        try:
+            for page in client.list_activity(user=wallet, start=debut, end=fin,
+                                             page_size=100):
+                items = getattr(page, "items", None)
+                out.extend(items if items is not None else [page])
+                if len(out) >= PLAFOND_API:
+                    return out, True
+            return out, False
+        except Exception as exc:  # noqa: BLE001
+            message = str(exc).lower()
+            if "offset" in message:
+                return out, True
+            if ("timed out" in message or "timeout" in message) \
+                    and essai < essais - 1:
+                time.sleep(2 ** essai)
+                continue
+            raise
+    return [], False
+
 
 def collecter(client, wallet: str, limite: int) -> tuple[list, bool]:
-    """Rend (actes, plafond_atteint). Un `Paginator` itere des PAGES, pas des
-    lignes -- piege mesure le 2026-08-20.
+    """Rend (actes, incomplet). Un `Paginator` itere des PAGES, pas des lignes
+    -- piege mesure le 2026-08-20.
 
-    LE PLAFOND EST CELUI DE POLYMARKET, PAS LE NOTRE. Mesure du 2026-08-29 sur
-    les trois premiers du classement : au-dela de 5 000 actes, l'API repond
-    « max historical activity offset of 5000 exceeded » et rien d'autre. C'est
-    la raison MECANIQUE pour laquelle « 99,3 % sur 32 614 trades » ne peut pas
-    etre verifie par qui que ce soit : le registre public est tronque a la
-    source. Ce n'est pas une panne a rattraper, c'est un fait a publier.
+    LE PLAFOND DE 5 000 EST PAR FENETRE, PAS PAR PORTEFEUILLE. On a d'abord
+    conclu l'inverse et on l'a ecrit publiquement : « 6 des 10 premiers sont
+    structurellement invérifiables ». C'etait FAUX. Un membre du groupe
+    Builders (fedoras, 2026-08-30) a donne la technique en quelques heures :
+    « page inside start/end windows -- each window has its own offset budget ».
+    Verifie le meme jour : janvier, mars et juin 2026 rendent chacun leurs
+    actes sur un portefeuille que la lecture simple bloquait a 5 000.
+
+    D'ou le decoupage adaptatif ci-dessous : une fenetre qui sature est coupee
+    en deux, jusqu'a l'heure. L'historique complet devient atteignable, donc
+    les gros portefeuilles deviennent auditables -- ce qui etait tout l'enjeu.
+
+    LA LECON, plus chere que le bug : on a publie une impossibilite apres avoir
+    epuise NOTRE facon de faire, pas toutes les facons de faire. Une limite
+    qu'on n'a pas su contourner n'est pas une limite de la plateforme. Demander
+    avant d'affirmer aurait coute un message ; l'affirmer a coute une
+    correction publique.
     """
-    out, plafond = [], False
-    try:
-        for page in client.list_activity(user=wallet, page_size=100):
-            items = getattr(page, "items", None)
-            out.extend(items if items is not None else [page])
-            if len(out) >= min(limite, PLAFOND_API):
-                break
-    except Exception as exc:  # noqa: BLE001
-        if "offset" not in str(exc).lower():
-            raise
-        plafond = True
-    return out[:limite], plafond or len(out) >= PLAFOND_API
+    fin = int(time.time())
+    pile, actes, vus, incomplet = [(DEBUT_POLYMARKET, fin)], [], {}, False
+
+    while pile and len(actes) < limite:
+        debut, borne = pile.pop()
+        # UNE API PUBLIQUE QUI NE NOUS DOIT RIEN. Mesure du 2026-08-30 : lire
+        # trois gros portefeuilles d'affilee (65 000 actes) a fait tomber les
+        # sept suivants en delai d'attente. Ce n'etait pas une panne, c'etait
+        # une limitation de debit -- et insister ne la leve pas, ca l'aggrave.
+        time.sleep(PAUSE)
+        lot, saturee = _fenetre(client, wallet, debut, borne)
+        if saturee and borne - debut > FENETRE_MIN:
+            milieu = (debut + borne) // 2
+            pile.extend([(debut, milieu), (milieu, borne)])
+            continue
+        if saturee:
+            # Une heure entiere saturee : la, on renonce pour de bon.
+            incomplet = True
+        # LES FENETRES SE TOUCHENT AUX BORNES : un acte a la seconde de coupure
+        # revient dans les deux moities et doublerait le PnL. Mais dedoublonner
+        # naivement SOUS-COMPTE : un gros ordre rempli contre plusieurs teneurs
+        # produit plusieurs actes au meme hash, meme jeton, meme taille -- des
+        # lignes distinctes et legitimes. Mesure du 2026-08-30 : mintblade
+        # tombait de 830 a 822 actes, soit 1 % de l'audit efface en silence.
+        # D'ou le comptage par MULTIPLICITE : on garde, pour chaque cle, le
+        # nombre maximal d'exemplaires vu dans UNE seule fenetre.
+        groupes: dict = defaultdict(list)
+        for a in lot:
+            groupes[_cle(a)].append(a)
+        for cle, exemplaires in groupes.items():
+            manquants = len(exemplaires) - vus.get(cle, 0)
+            if manquants > 0:
+                vus[cle] = len(exemplaires)
+                actes.extend(exemplaires[:manquants])
+    # NE PAS CONFONDRE LES DEUX PLAFONDS. `incomplet` ne signale plus qu'une
+    # saturation VRAIE (une heure pleine a 5 000 actes) ; atteindre `limite`
+    # est notre propre garde-fou, que `--max` releve. Les melanger ferait
+    # reapparaitre le « ce n'est pas notre limite » qu'on vient de retirer,
+    # et republierait la meme erreur sous une autre forme.
+    return actes[:limite], incomplet
 
 
 def d(valeur) -> Decimal:
