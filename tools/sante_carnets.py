@@ -139,6 +139,8 @@ def charger_historique(jours: int = 30) -> dict[str, list[tuple[str, str]]]:
             # continue avec ce qu'on a, l'historique est un bonus.
             continue
         for slug, mesure in releve.items():
+            if slug.startswith("_"):
+                continue  # metadonnee du releve, pas un marche
             # LES DEUX FORMATS SE LISENT ICI. Les releves du 26 au 29 aout 2026
             # ne portent que le verdict, une chaine ; depuis, chaque ligne est
             # un objet qui garde aussi les prix. Ne lire que le nouveau format
@@ -402,6 +404,17 @@ def page(lignes: list[dict], style: str) -> str:
     </table></div>
   </section>
 
+  <div class="callout">
+    <h3>Read this before comparing two of these snapshots</h3>
+    <p><b>Book health depends on the hour you measure it.</b> On 31 August 2026
+    the same universe read 14.0% dead books at 14:59 UTC and 27.8% at 21:45
+    UTC &mdash; fourteen points apart, same day, no incident in between. Books
+    thin out as European and US sessions close. Every liquidity snapshot you
+    see about this market is hour-dependent, and almost none of them say which
+    hour. This one does, above, and every archived reading is now timestamped
+    so day-over-day comparisons can account for it. We found this by trying to
+    attribute a drop to a platform outage and discovering it was our own clock.</p>
+  </div>
   <p>Want this run on your own set of markets, or a wallet audited the same
   way? <a href="./work.html">Rates and how to reach me</a>.</p>
   <p class="small">No affiliation with Polymarket. A snapshot goes stale &mdash;
@@ -436,7 +449,13 @@ def main() -> int:
 
     os.makedirs(HISTORIQUE, exist_ok=True)
     with open(f"{HISTORIQUE}/{aujourdhui}.json", "w", encoding="utf-8", newline="\n") as f:
-        json.dump({l["slug"]: ligne_archivee(l) for l in lignes},
+        # L'HEURE FAIT PARTIE DE LA MESURE. Mesure du 2026-08-31 : 14,0 % de
+        # carnets morts a 14:59, 27,8 % a 21:45 -- QUATORZE POINTS d'ecart le
+        # meme jour. Une archive datee au jour seul laisse donc croire a des
+        # variations de marche la ou il n'y a qu'une difference d'horloge, et
+        # `persistance` compte alors du bruit. On horodate chaque releve.
+        json.dump({"_mesure": datetime.now(timezone.utc).isoformat(),
+                   **{l["slug"]: ligne_archivee(l) for l in lignes}},
                   f, ensure_ascii=False)
 
     with open("docs/_template.html", encoding="utf-8") as f:
