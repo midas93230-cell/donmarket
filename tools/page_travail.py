@@ -41,10 +41,11 @@ import enveloppe  # noqa: E402
 # marge pour monter une fois qu'une reference publique existe.
 TAUX = 50
 FORFAITS = (
-    ("Wallet audit", 150,
-     "One wallet, reconciled on chain end to end: deposits, withdrawals, "
-     "settled versus open positions, guaranteed floor, and an explicit list "
-     "of what cannot be verified. Delivered as a report you can publish."),
+    ("Verified track record", 150,
+     "You claim a result. I reconcile the wallet on chain end to end &mdash; "
+     "deposits, withdrawals, settled versus open positions, a guaranteed "
+     "floor, and an explicit list of what cannot be verified &mdash; and "
+     "publish it as a dated page you can link to. Whatever it says."),
     ("Order-book health report", 300,
      "A set of markets measured over several days: which books are tradable, "
      "which are dead, spread and tick, depth on both sides, and how long each "
@@ -115,21 +116,34 @@ def page(p: dict, quand: str) -> str:
     return enveloppe.debut(
         titre="Work with DON",
         chapeau=f"DONMARKET &middot; RATES AS OF {quand.upper()}",
-        dek="On-chain wallet audits and order-book measurement for prediction "
-            "markets. Every number below comes from tooling that is public and "
-            "reproducible &mdash; check my work before you pay me anything.",
+        dek="<b>You claim a result and nobody believes you.</b> I verify "
+            "claims on chain and publish what I find &mdash; whatever it says. "
+            "That last part is the whole product: a number nobody can accuse "
+            "you of writing yourself.",
         signature="Fixed prices &middot; USDC on Polygon &middot; "
                   "Open source &middot; No trading signals",
         og="On-chain wallet audits and order-book measurement for prediction "
            "markets. Fixed prices, published method, open source tooling.",
         tuiles=tuiles) + f"""
 <section>
-<h2>What I do</h2>
-<p><b>I measure things about prediction markets and I say what I cannot
-measure.</b> The audit tool refuses to state a total while positions are open
-or while there are events it cannot account for, and it names them. That
-restraint is the product: a number you can defend is worth more than a number
-that looks good.</p>
+<h2>If any of this is you</h2>
+<p>You sell a bot, a signal service, or a copy-trading feed, and every second
+comment is <i>"screenshots prove nothing"</i>. You are raising money, or
+looking for people to follow your positions, and your only evidence is a
+dashboard you control. You are buying someone else's tool and you would like
+their numbers checked before you pay. Or you are a vendor making a specific,
+testable claim about your own product &mdash; which you cannot credibly test
+yourself.</p>
+<p><b>In every one of those cases the missing piece is the same: someone who is
+not you, publishing the result before knowing whether it flatters you.</b></p>
+
+<h2>What that actually means</h2>
+<p>I measure prediction markets and I say what I cannot measure. The audit tool
+refuses to state a total while positions are open, or while there are events it
+cannot account for, and it names them. <b>That restraint is the product.</b> A
+number you can defend is worth more than a number that looks good &mdash; and a
+verification that could only ever come out positive would be worth nothing to
+the person you are trying to convince.</p>
 
 </section>
 
