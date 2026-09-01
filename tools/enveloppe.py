@@ -94,6 +94,7 @@ def fin(courante: str = "") -> str:
     `app.html` est restee orpheline des jours faute de ce bloc."""
     pages = (("./", "Builders Radar"), ("./health.html", "Book health"),
              ("./verify.html", "Wallet verification"),
+             ("./arbitrage.html", "The arb nobody can take"),
              ("./work.html", "Work with DON"), ("./app.html", "The app"))
     liens = " &middot; ".join(
         f"<b>{nom}</b>" if chemin.endswith(courante) and courante

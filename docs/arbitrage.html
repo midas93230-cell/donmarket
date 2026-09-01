@@ -1,0 +1,283 @@
+<meta charset="utf-8">
+<title>A price contradiction nobody can take</title>
+<meta name="viewport" content="width=device-width,initial-scale=1">
+<meta property="og:title" content="A price contradiction nobody can take">
+<meta property="og:description" content="Three Polymarket events price mutually exclusive outcomes so the set does not sum to $1. The gap is real, survives the live book, and is not takeable.">
+<style>
+  :root{
+    --ground:#F4F6F9; --surface:#FFFFFF; --surface-2:#EAEFF5;
+    --ink:#111820; --ink-2:#485664; --ink-3:#7A8794;
+    --rule:#D8E0E8; --rule-strong:#B9C5D1;
+    --brass:#8A5E10; --brass-fill:#EEE1C2;
+    --teal:#245F5F; --teal-fill:#D5E6E4;
+    --alarm:#A5362B; --alarm-fill:#F6DED9;
+    --shadow:0 1px 2px rgba(17,24,32,.06),0 8px 24px -16px rgba(17,24,32,.28);
+    --display:Georgia,'Iowan Old Style','Times New Roman',serif;
+    --body:system-ui,-apple-system,'Segoe UI',Roboto,sans-serif;
+    --data:ui-monospace,SFMono-Regular,'SF Mono',Consolas,'Liberation Mono',monospace;
+  }
+  @media (prefers-color-scheme:dark){
+    :root:not([data-theme="light"]){
+      --ground:#0E1319; --surface:#161D25; --surface-2:#1E262F;
+      --ink:#E9EEF3; --ink-2:#A5B1BE; --ink-3:#6D7B89;
+      --rule:#28313B; --rule-strong:#3A4652;
+      --brass:#E3B155; --brass-fill:#3B2F14;
+      --teal:#63B2AE; --teal-fill:#123130;
+      --alarm:#E27F70; --alarm-fill:#3C201C;
+      --shadow:0 1px 2px rgba(0,0,0,.4),0 8px 24px -16px rgba(0,0,0,.8);
+    }
+  }
+  :root[data-theme="dark"]{
+    --ground:#0E1319; --surface:#161D25; --surface-2:#1E262F;
+    --ink:#E9EEF3; --ink-2:#A5B1BE; --ink-3:#6D7B89;
+    --rule:#28313B; --rule-strong:#3A4652;
+    --brass:#E3B155; --brass-fill:#3B2F14;
+    --teal:#63B2AE; --teal-fill:#123130;
+    --alarm:#E27F70; --alarm-fill:#3C201C;
+    --shadow:0 1px 2px rgba(0,0,0,.4),0 8px 24px -16px rgba(0,0,0,.8);
+  }
+
+  *{box-sizing:border-box}
+  body{
+    margin:0; background:var(--ground); color:var(--ink);
+    font-family:var(--body); font-size:16px; line-height:1.6;
+    -webkit-font-smoothing:antialiased;
+  }
+  .wrap{max-width:1080px; margin:0 auto; padding:clamp(24px,5vw,64px) clamp(16px,4vw,40px) 80px}
+  .stack{display:flex; flex-direction:column}
+
+  /* ---- masthead ---- */
+  .masthead{gap:18px; padding-bottom:28px; border-bottom:2px solid var(--ink)}
+  .eyebrow{
+    font-family:var(--data); font-size:11px; letter-spacing:.16em;
+    text-transform:uppercase; color:var(--brass); margin:0;
+  }
+  h1{
+    font-family:var(--display); font-weight:400; letter-spacing:-.02em;
+    font-size:clamp(2.6rem,7vw,4.4rem); line-height:1.02; margin:0;
+    text-wrap:balance;
+  }
+  .dek{
+    font-family:var(--display); font-size:clamp(1.05rem,2.3vw,1.3rem);
+    line-height:1.5; color:var(--ink-2); margin:0; max-width:62ch;
+  }
+  .byline{
+    display:flex; flex-wrap:wrap; gap:8px 20px; font-family:var(--data);
+    font-size:11.5px; letter-spacing:.06em; color:var(--ink-3);
+    text-transform:uppercase; margin:0;
+  }
+
+  /* ---- thesis tiles ---- */
+  .thesis{
+    display:grid; grid-template-columns:repeat(auto-fit,minmax(230px,1fr));
+    gap:1px; background:var(--rule); border:1px solid var(--rule);
+    margin:36px 0 0;
+  }
+  .tile{background:var(--surface); padding:22px 20px 20px; display:flex; flex-direction:column; gap:8px}
+  .tile .n{
+    font-family:var(--data); font-variant-numeric:tabular-nums;
+    font-size:clamp(2rem,4.6vw,2.7rem); line-height:1; letter-spacing:-.03em;
+    color:var(--brass); font-weight:600;
+  }
+  .tile .n small{font-size:.44em; letter-spacing:.02em; color:var(--ink-3); font-weight:500}
+  .tile p{margin:0; font-size:14px; line-height:1.5; color:var(--ink-2)}
+  .tile .lab{
+    font-family:var(--data); font-size:10.5px; letter-spacing:.14em;
+    text-transform:uppercase; color:var(--ink-3);
+  }
+
+  /* ---- sections ---- */
+  section{margin-top:56px}
+  h2{
+    font-family:var(--display); font-weight:400; font-size:clamp(1.6rem,3.4vw,2.1rem);
+    letter-spacing:-.015em; margin:0 0 6px; text-wrap:balance;
+  }
+  .sub{margin:0 0 22px; color:var(--ink-2); font-size:15px; max-width:68ch}
+  p{max-width:68ch}
+
+  /* ---- table ---- */
+  .scroller{overflow-x:auto; border:1px solid var(--rule); background:var(--surface); box-shadow:var(--shadow)}
+  table{border-collapse:collapse; width:100%; min-width:840px; font-size:14px}
+  thead th{
+    font-family:var(--data); font-size:10.5px; letter-spacing:.12em; text-transform:uppercase;
+    color:var(--ink-3); font-weight:600; text-align:right; padding:14px 14px 11px;
+    border-bottom:1px solid var(--rule-strong); white-space:nowrap; background:var(--surface-2);
+  }
+  thead th:first-child,thead th.l{text-align:left}
+  tbody td{
+    padding:12px 14px; border-bottom:1px solid var(--rule); text-align:right;
+    font-family:var(--data); font-variant-numeric:tabular-nums; white-space:nowrap;
+  }
+  tbody td.l{text-align:left; font-family:var(--body)}
+  tbody tr:last-child td{border-bottom:none}
+  tbody tr:hover td{background:var(--surface-2)}
+  .name{font-weight:600; letter-spacing:-.005em}
+  .rk{font-family:var(--data); color:var(--ink-3); font-size:12px; width:2.5em; display:inline-block}
+  .rev{color:var(--brass); font-weight:600}
+  .zero{color:var(--ink-3)}
+  .bar{height:4px; background:var(--brass); display:block; margin-top:5px; min-width:1px}
+  .barwrap{display:block; width:120px; margin-left:auto}
+  .delta{font-size:12px; letter-spacing:.02em}
+  .up{color:var(--teal)} .down{color:var(--ink-3)}
+  .chip{
+    display:inline-block; font-family:var(--data); font-size:10px; letter-spacing:.1em;
+    text-transform:uppercase; padding:2px 7px; border:1px solid currentColor;
+    border-radius:2px; margin-left:8px; vertical-align:1px;
+  }
+  .chip.free{color:var(--ink-3)}
+  .chip.over{color:var(--alarm); background:var(--alarm-fill); border-color:var(--alarm)}
+
+  /* ---- callout ---- */
+  .callout{
+    border-left:3px solid var(--alarm); background:var(--alarm-fill);
+    padding:20px 22px; display:flex; flex-direction:column; gap:10px;
+  }
+  .callout h3{
+    margin:0; font-family:var(--display); font-weight:400; font-size:1.25rem; color:var(--ink);
+  }
+  .callout p{margin:0; color:var(--ink-2); font-size:14.5px}
+  .evidence{
+    font-family:var(--data); font-size:12.5px; background:var(--surface);
+    border:1px solid var(--rule); padding:12px 14px; overflow-x:auto;
+    color:var(--ink-2); line-height:1.7;
+  }
+  .evidence b{color:var(--ink)}
+
+  /* ---- method ---- */
+  .method{
+    display:grid; grid-template-columns:repeat(auto-fit,minmax(280px,1fr)); gap:24px;
+  }
+  .card{
+    background:var(--surface); border:1px solid var(--rule); padding:20px 22px;
+    display:flex; flex-direction:column; gap:9px;
+  }
+  .card h3{
+    margin:0; font-family:var(--data); font-size:11px; letter-spacing:.13em;
+    text-transform:uppercase; color:var(--brass); font-weight:600;
+  }
+  .card p{margin:0; font-size:14px; color:var(--ink-2)}
+  .card p b{color:var(--ink)}
+
+  footer{
+    margin-top:64px; padding-top:22px; border-top:1px solid var(--rule);
+    font-family:var(--data); font-size:11.5px; letter-spacing:.05em;
+    color:var(--ink-3); display:flex; flex-wrap:wrap; gap:8px 24px;
+  }
+  a{color:var(--brass)}
+  a:focus-visible,tr:focus-visible{outline:2px solid var(--brass); outline-offset:2px}
+  @media (prefers-reduced-motion:no-preference){
+    .bar{transition:width .5s cubic-bezier(.22,.61,.36,1)}
+  }
+
+  .lede{font-family:var(--display); font-size:clamp(1.05rem,2.2vw,1.28rem);
+        line-height:1.55; color:var(--ink-2); max-width:64ch; margin:0 0 18px}
+  .lede b{color:var(--ink)}
+  section{margin-top:42px}
+  pre{font-family:var(--data); font-size:13px; line-height:1.5;
+      background:var(--surface-2); border:1px solid var(--rule);
+      padding:14px 16px; overflow-x:auto; margin:18px 0; max-width:68ch}
+  code{font-family:var(--data); font-size:.92em}
+  td.num,th.num{text-align:right; font-family:var(--data);
+                font-variant-numeric:tabular-nums; white-space:nowrap}
+  tbody td{padding:9px 14px; border-top:1px solid var(--rule)}
+  tbody tr:hover{background:var(--surface-2)}
+  .small{font-size:13px; color:var(--ink-3)}
+  .foot{margin-top:56px; padding-top:20px; border-top:1px solid var(--rule);
+        font-size:13.5px; color:var(--ink-3)}
+  .foot a{color:var(--teal)}
+  a{color:var(--teal)}
+</style>
+<div class="wrap stack">
+<header class="masthead stack">
+  <p class="eyebrow">DONMARKET &amp;middot; MEASURED 31 AUGUST 2026</p>
+  <h1>A price contradiction nobody can take</h1>
+  <p class="dek">Three Polymarket events price mutually exclusive outcomes so that the set does not sum to $1. The gap survives the live order book. <b>It persists because the tooling can't reach it &mdash; not because nobody noticed.</b></p>
+  <p class="byline">Read-only &middot; No key &middot; No orders placed &middot; Reproducible</p>
+</header>
+<div class='thesis'><div class='tile'><span class='lab'>contradictions found</span><span class='n'>3<small> of 172</small></span><p>Events with mutually exclusive outcomes whose prices do not sum to $1.</p></div><div class='tile'><span class='lab'>largest gap</span><span class='n'>1.10<small> %</small></span><p>Survives the live book with real depth to $500.</p></div><div class='tile'><span class='lab'>why it persists</span><span class='n'>0<small> takeable</small></span><p>The client exposes no conversion. The contract does &mdash; at a cost that exceeds the gap.</p></div></div>
+<main>
+<section>
+<h2>The arithmetic</h2>
+<p>A <code>negRisk</code> event has mutually exclusive outcomes: exactly one
+happens. Holding one share of every outcome therefore pays exactly $1, whatever
+occurs. So if the outcome prices don't sum to $1, something is wrong with the
+prices and not with your forecast. No opinion required.</p>
+
+<div class="scroller"><table>
+<thead><tr><th class="l">Event</th><th class="num">Legs</th>
+<th class="num">Sum of asks</th><th class="num">Sum of bids</th>
+<th class="num">Gap</th><th class="num">24h volume ($)</th></tr></thead>
+<tbody><tr><td>Fed Decision in October</td><td class='num'>5</td><td class='num'>1.0340</td><td class='num'>1.0110</td><td class='num'>1.10%</td><td class='num'>20,626</td></tr><tr><td>Pro Football: 2027 Champion</td><td class='num'>33</td><td class='num'>2.0660</td><td class='num'>1.0070</td><td class='num'>0.70%</td><td class='num'>551,180</td></tr><tr><td>Fed Decision in December</td><td class='num'>5</td><td class='num'>1.0560</td><td class='num'>1.0070</td><td class='num'>0.70%</td><td class='num'>21,339</td></tr></tbody>
+</table></div>
+
+<p>Three out of 172 events with exclusive outcomes, scanned across the 400 most
+active. Everything else summed to $1 within half a percent.</p>
+</section>
+
+<section>
+<h2>It survives the real book</h2>
+<p class="sub">A displayed price is not a price. This walks the live bid side
+level by level, which is what an order would actually do.</p>
+<div class="scroller"><table>
+<thead><tr><th class="num">Shares per leg</th><th class="num">Sum obtained</th>
+<th class="num">Gap</th></tr></thead>
+<tbody><tr><td class='num'>5</td><td class='num'>1.0110</td><td class='num'>+1.10%</td></tr><tr><td class='num'>25</td><td class='num'>1.0110</td><td class='num'>+1.10%</td></tr><tr><td class='num'>100</td><td class='num'>1.0106</td><td class='num'>+1.06%</td></tr><tr><td class='num'>500</td><td class='num'>1.0093</td><td class='num'>+0.93%</td></tr></tbody>
+</table></div>
+<p>Depth to $500 with only mild decay. This is not dust.</p>
+</section>
+
+<section>
+<h2>And it cannot be taken</h2>
+<p>To hold one share of every outcome you must either mint the complete set for
+$1, or buy each leg. <b>The Python client exposes no negRisk conversion.</b>
+<code>split_position</code> splits collateral into YES + NO of a <i>single</i>
+binary market, not into one share of each of five outcomes. So assembling the
+set means buying every leg at the ask &mdash; 1.0340 &mdash; to sell it at
+1.0110. That is a 2.3% <i>loss</i>, not a 1.1% gain.</p>
+
+<p><b>I first published this as "impossible". That was wrong, and a reader
+corrected the framing.</b> If the mechanism is reachable outside the client,
+the finding is "expensive to reach" rather than "impossible" &mdash; and those
+two decay at very different speeds.</p>
+
+<p>Checked: the client's own configuration carries three negRisk contract
+addresses on Polygon, and the wallet I measure from already holds an unlimited
+allowance to the adapter at <code>0xd91E80cF2E7be2e162c6513ceD06f1dD0dA35296</code>. The contract is
+deployed and I am already approved to call it. I simply cannot reach it through
+the client.</p>
+
+<div class="callout">
+<h3>So the honest finding is: reachable, priced out at my size</h3>
+<p>Direct contract calls instead of a client. Gas on every leg. No client-side
+validation of anything. An on-chain operation that cannot be cancelled once
+signed. Against a gap worth $0.055 on a $5 stake, that is not a trade &mdash;
+it is a wager on my own contract code being right the first time. It stays open
+until someone with enough capital to amortise the tooling bothers.</p>
+</div>
+</section>
+
+<section>
+<h2>Why this is worth publishing at all</h2>
+<p>"The market is inefficient" and "the market is efficient given the tools
+people actually have" are different claims, and only the second explains what
+you see. The contradiction isn't there because nobody looked. It's there
+because looking is free and taking is not.</p>
+<p>Everything above is reproducible with no key and no account:</p>
+<pre>python tools/incoherences.py
+python tools/incoherences.py --verifier fed-decision-in-october-20260617190323537</pre>
+<p>The scanner prints <b>NONE</b> far more often than it prints a result, and
+that line is kept deliberately. A scanner that stops reporting nothing is a
+scanner that has started agreeing with you.</p>
+<p class="small">Generated 01 September 2026, 22:05 UTC. Measured 31 August 2026; the gaps quoted are that
+snapshot, and gaps of this kind move within hours. Re-run rather than trust the
+page.</p>
+</section>
+</main>
+<footer class="foot">
+<p><a href='./'>Builders Radar</a> &middot; <a href='./health.html'>Book health</a> &middot; <a href='./verify.html'>Wallet verification</a> &middot; <b>The arb nobody can take</b> &middot; <a href='./work.html'>Work with DON</a> &middot; <a href='./app.html'>The app</a></p>
+<p>Built by DON. Method and source:
+<a href="https://github.com/midas93230-cell/donmarket">github.com/midas93230-cell/donmarket</a>.
+Everything here is measured from public APIs and reproducible &mdash; no key,
+no authentication, no orders placed.</p>
+</footer>
+</div>
