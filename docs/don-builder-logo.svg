@@ -1,0 +1,16 @@
+<svg xmlns="http://www.w3.org/2000/svg" viewBox="0 0 512 512" width="512" height="512" role="img" aria-label="DON">
+  <!-- Photo de profil constructeur, demandee par Edoardo (Polymarket) le
+       2026-09-01. Memes couleurs que le site : fond #0E1319, accent #63B2AE,
+       laiton #E3B155 - pour que l'annuaire des builders et les pages de mesure
+       se reconnaissent comme la meme chose. Carre, 512x512, lisible a 32 px :
+       c'est la taille reelle d'affichage dans un classement. -->
+  <rect width="512" height="512" fill="#0E1319"/>
+  <rect x="8" y="8" width="496" height="496" fill="none" stroke="#28313B" stroke-width="2"/>
+  <text x="256" y="242" text-anchor="middle"
+        font-family="Georgia, 'Iowan Old Style', 'Times New Roman', serif"
+        font-size="176" letter-spacing="4" fill="#E9EEF3">DON</text>
+  <line x1="150" y1="292" x2="362" y2="292" stroke="#63B2AE" stroke-width="6"/>
+  <text x="256" y="356" text-anchor="middle"
+        font-family="ui-monospace, SFMono-Regular, Consolas, monospace"
+        font-size="34" letter-spacing="7" fill="#63B2AE">MEASURED</text>
+</svg>
