@@ -107,9 +107,21 @@ def une_passe(client, session, marches, armer: bool) -> None:
         if not armer:
             continue
         try:
+            # SANS `builder_code`, LES FRAIS DE CET ORDRE SONT PERDUS POUR
+            # TOUJOURS -- l'attribution se joue a la signature et ne se reclame
+            # pas apres coup. Les deux sorties gagnantes des 28 et 29 aout sont
+            # parties d'ici, sans attribution, parce que
+            # `donmarket/builder/attribution.py` affirmait que joindre le code a
+            # une requete « n'attribue rien du tout ». Le SDK l'expose pourtant
+            # sur `place_limit_order`. Trouve le 2026-09-01 en repondant a la
+            # question d'Edoardo (Polymarket).
             r = client.place_limit_order(token_id=token_id, price=prix,
-                                         size=detenu, side="SELL", post_only=True)
-            logger.info("  pose : %s", r)
+                                         size=detenu, side="SELL",
+                                         post_only=True,
+                                         builder_code=os.getenv(
+                                             "POLYMARKET_BUILDER_CODE") or None)
+            logger.info("  pose : %s (attribution %s)", r,
+                        "ok" if os.getenv("POLYMARKET_BUILDER_CODE") else "AUCUNE")
         except Exception as exc:  # noqa: BLE001
             logger.error("  REFUSE : %s", str(exc)[:300])
 

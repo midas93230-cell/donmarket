@@ -214,14 +214,32 @@ def main() -> int:
     preneur = (args.cote == "BUY" and ask is not None and args.prix >= ask) or (
         args.cote == "SELL" and bid is not None and args.prix <= bid)
 
+    # L'ATTRIBUTION S'ANNONCE AVANT LA SORTIE EN LECTURE SEULE. Placee apres,
+    # elle n'etait visible qu'en engageant de l'argent -- donc invérifiable
+    # sans risque, ce qui est exactement le defaut qu'on vient de corriger.
+    code = os.getenv("POLYMARKET_BUILDER_CODE") or None
+    print(f"\nattribution : {'code builder joint' if code else 'AUCUNE'}")
+
     if not args.arm:
-        print("\nLECTURE SEULE -- aucun ordre envoye. Ajouter --arm pour poser.")
+        print("LECTURE SEULE -- aucun ordre envoye. Ajouter --arm pour poser.")
         return 0
 
+    # L'ATTRIBUTION SE JOUE ICI, PAS APRES. Le SDK expose `builder_code` sur
+    # `place_limit_order` ; ne pas le passer, c'est renoncer definitivement aux
+    # frais de cet ordre -- ils ne se reclament pas retroactivement.
+    #
+    # POURQUOI CE N'ETAIT PAS BRANCHE, parce que la raison compte plus que le
+    # correctif : `donmarket/builder/attribution.py` affirme que le code est
+    # « un IDENTIFIANT DE LECTURE » et que « le poser dans une requete
+    # n'attribue rien du tout ». Cette croyance a fait qu'on ne l'a jamais
+    # passe -- et le compteur de revenus builder a lu ZERO pendant deux
+    # semaines, qu'on interpretait comme « pas de volume » au lieu de
+    # « pas d'attribution ». Edoardo (Polymarket) a pose la question le
+    # 2026-09-01 ; c'est en cherchant a repondre qu'on l'a vu.
     try:
         r = client.place_limit_order(
             token_id=token, price=args.prix, size=args.parts,
-            side=args.cote, post_only=not preneur,
+            side=args.cote, post_only=not preneur, builder_code=code,
         )
         print(f"  POSE : {r}")
     except Exception as exc:  # noqa: BLE001
