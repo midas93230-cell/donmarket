@@ -19,6 +19,7 @@ from donmarket.builder.attribution import (
     attribution_status,
     build_builder_config,
     load_attribution,
+    order_attribution,
 )
 from donmarket.builder.api import (
     BuilderApiError,
@@ -620,3 +621,80 @@ def test_le_rapport_ne_laisse_fuir_aucun_secret(env_vierge):
     assert "secret-tres-confidentiel" not in repr(rapport)
     assert rapport["code"] == "0x0000…0001"  # tronqué, et ce n'est pas un secret
     assert rapport["tier_is_unknown"] is True  # le palier ne se lit pas dans l'API
+
+
+# --------------------------------------------------------------------------
+# `order_attribution` — le point d'entrée UNIQUE des poseurs d'ordres.
+#
+# Ces tests existent parce que le défaut a survécu deux semaines : sept
+# endroits lisaient le code chacun de leur côté, et les deux premiers
+# corrigés le lisaient encore par `os.getenv(...) or None`, c'est-à-dire SANS
+# VALIDATION. Or un code malformé ne provoque aucune panne : il produit une
+# page `/builder/trades` vide, impossible à distinguer d'un compte sans
+# volume (voir la mesure du 2026-08-13 en tête de `codes.py`). La lecture
+# brute rejouait donc le bug qu'elle prétendait corriger.
+# --------------------------------------------------------------------------
+
+
+def test_sans_code_configure_aucun_code_n_est_joint(env_vierge):
+    a = order_attribution()
+    assert a.code is None
+    assert a.is_attributed is False
+    assert "AUCUNE" in a.phrase
+
+
+def test_un_code_valide_est_joint_normalise(env_vierge):
+    env_vierge.setenv(CODE_VAR, "  0X" + "0" * 63 + "1  ")
+    a = order_attribution()
+    assert a.code == VALID_CODE  # minuscules, sans espaces : la forme mesurée
+    assert a.is_attributed is True
+    assert "0x0000…0001" in a.phrase
+
+
+def test_UN_CODE_MALFORME_N_EST_JAMAIS_JOINT(env_vierge):
+    """Le test qui compte. `os.getenv` seul l'aurait laissé partir.
+
+    Envoyer « 0X… » ou « CHOUCROUTE » ne fait pas échouer l'ordre : il part,
+    et les frais sont perdus en silence. Refuser de le joindre transforme une
+    perte invisible en une ligne lisible.
+    """
+    # « 0xZZ… » : variante mesurée le 2026-08-13, muette côté serveur. Le
+    # préfixe « 0X » n'est PAS un bon exemple ici — il est rattrapé par la
+    # normalisation à la lecture, ce que vérifie déjà
+    # `test_le_code_est_normalise_a_la_lecture`.
+    env_vierge.setenv(CODE_VAR, "0xZZ" + "0" * 62)
+    a = order_attribution()
+    assert a.code is None
+    assert a.is_attributed is False
+    assert "MALFORME" in a.phrase
+
+
+def test_le_code_malforme_dit_POURQUOI_il_l_est(env_vierge):
+    env_vierge.setenv(CODE_VAR, "0x01")
+    a = order_attribution()
+    assert a.code is None
+    assert "2 chiffres après" in a.phrase
+
+
+def test_une_chaine_arbitraire_est_refusee(env_vierge):
+    env_vierge.setenv(CODE_VAR, "CHOUCROUTE")
+    assert order_attribution().code is None
+
+
+def test_un_code_vide_ou_blanc_vaut_absence(env_vierge):
+    env_vierge.setenv(CODE_VAR, "   ")
+    a = order_attribution()
+    assert a.code is None
+    assert "AUCUNE" in a.phrase
+
+
+def test_la_phrase_ne_laisse_fuir_aucun_secret(env_vierge):
+    """Elle est imprimée sur la sortie standard des outils : rien de secret.
+
+    Le code builder n'est PAS un secret (il figure dans chaque ligne publique
+    de `/builder/trades`), les identifiants d'API en sont.
+    """
+    env_vierge.setenv(CODE_VAR, VALID_CODE)
+    for name in API_VARS:
+        env_vierge.setenv(name, "secret-tres-confidentiel")
+    assert "secret-tres-confidentiel" not in order_attribution().phrase

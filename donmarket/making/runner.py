@@ -46,6 +46,7 @@ from datetime import date, datetime, timezone
 from dataclasses import dataclass, field
 from typing import Sequence
 
+from ..builder.attribution import order_attribution
 from .core import DesiredOrder, Inventory, Rung, eligible, exits, plan
 
 logger = logging.getLogger(__name__)
@@ -324,6 +325,19 @@ def run_making(
     lente, et l'isoler permet de tester la boucle sans place de marché.
     """
     rapport = MakingReport(armed=armed)
+
+    # LUE UNE FOIS POUR TOUTE LA COURSE, pas à chaque ordre. Une boucle qui
+    # relirait l'environnement à chaque tour pourrait changer d'attribution en
+    # cours de route sans que rien ne le signale : la moitié des ordres d'une
+    # même session seraient attribués et l'autre non, et le rapport de fin
+    # serait incapable de dire laquelle.
+    attribution = order_attribution()
+    if armed and not attribution.is_attributed:
+        # Cette boucle est le premier producteur de volume du dépôt. Partir
+        # sans attribution n'est pas un détail de configuration : c'est le
+        # revenu de la session entière.
+        logger.warning("attribution %s", attribution.phrase)
+
     par_marche = bankroll / max(max_markets, 1)
     # `adopted` = les identifiants qu'une session PRECEDENTE a laisses au
     # carnet. Sans eux, ses propres ordres reviennent ETRANGERS a la boucle :
@@ -445,6 +459,14 @@ def run_making(
                         # Une expiration alignée sur la fin de la course les
                         # fait mourir seuls, quoi qu'il arrive au processus.
                         expiration=expiration,
+                        # LE PLUS GROS VOLUME DU DÉPÔT PASSAIT ICI SANS
+                        # ATTRIBUTION. Cette boucle repose des cotations à
+                        # chaque tour : c'est, de loin, le premier producteur
+                        # de volume routé de DONmarket, et donc la plus grosse
+                        # part des frais builder perdus pendant deux semaines.
+                        # Un market maker non attribué fournit de la liquidité
+                        # gratuitement à quelqu'un d'autre.
+                        builder_code=attribution.code,
                     )
                 except Exception as exc:  # noqa: BLE001
                     logger.warning("ordre non passé sur %s : %s", ordre.token_id[:12], exc)

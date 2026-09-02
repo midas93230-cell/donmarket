@@ -312,6 +312,7 @@ def main() -> int:
     from dotenv import load_dotenv
     from polymarket import SecureClient
 
+    from donmarket.builder.attribution import order_attribution
     from donmarket.store import vault
 
     parser = argparse.ArgumentParser()
@@ -391,6 +392,11 @@ def main() -> int:
     print("est pose pour que la MESURE de demain tranche :")
     print("  get_total_earnings_for_user_for_day(date='AAAA-MM-JJ')")
 
+    # Annoncee avant le desarmement : sinon l'etat d'attribution n'est
+    # lisible qu'en engageant reellement le ticket.
+    attribution = order_attribution()
+    print("attribution : " + attribution.phrase)
+
     if not args.arm:
         print("\nDESARME -- rien n'a ete envoye. Ajouter --arm pour poser le ticket.")
         return 0
@@ -406,6 +412,14 @@ def main() -> int:
         # nous ferait preneur, donc payeur, et supprimerait la liquidite qu'on
         # est justement paye pour fournir.
         post_only=True,
+        # DEUX REMUNERATIONS DISTINCTES, et cet outil n'en cherchait qu'une.
+        # Les recompenses de liquidite se comptent sur la PRESENCE au carnet ;
+        # les frais builder se comptent sur le VOLUME ROUTE. Un ticket pose
+        # sans `builder_code` peut donc marquer des points de recompense en
+        # ne rapportant rien du cote builder -- et la mesure du lendemain,
+        # `get_total_earnings_for_user_for_day`, ne montre que la premiere
+        # moitie. C'est ce qui rendait le zero builder credible.
+        builder_code=attribution.code,
     )
     ok = bool(getattr(recu, "success", getattr(recu, "ok", False)))
     print(f"\nORDRE POSE : ok={ok}  {getattr(recu, 'order_id', '?')}")

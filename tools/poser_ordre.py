@@ -147,6 +147,7 @@ def main() -> int:
     import httpx
     from polymarket import SecureClient
 
+    from donmarket.builder.attribution import order_attribution
     from donmarket.store import vault
 
     client = SecureClient.create(
@@ -217,8 +218,12 @@ def main() -> int:
     # L'ATTRIBUTION S'ANNONCE AVANT LA SORTIE EN LECTURE SEULE. Placee apres,
     # elle n'etait visible qu'en engageant de l'argent -- donc invérifiable
     # sans risque, ce qui est exactement le defaut qu'on vient de corriger.
-    code = os.getenv("POLYMARKET_BUILDER_CODE") or None
-    print(f"\nattribution : {'code builder joint' if code else 'AUCUNE'}")
+    # `order_attribution()` et non `os.getenv` : la lecture brute laissait
+    # partir un code MALFORME, que le CLOB accepte sans broncher et qui
+    # rend une page /builder/trades vide -- indistinguable d'un compte
+    # sans volume. Un seul endroit lit le code, desormais.
+    attribution = order_attribution()
+    print(f"\nattribution : {attribution.phrase}")
 
     if not args.arm:
         print("LECTURE SEULE -- aucun ordre envoye. Ajouter --arm pour poser.")
@@ -229,17 +234,19 @@ def main() -> int:
     # frais de cet ordre -- ils ne se reclament pas retroactivement.
     #
     # POURQUOI CE N'ETAIT PAS BRANCHE, parce que la raison compte plus que le
-    # correctif : `donmarket/builder/attribution.py` affirme que le code est
-    # « un IDENTIFIANT DE LECTURE » et que « le poser dans une requete
+    # correctif : `donmarket/builder/attribution.py` affirmait que le code
+    # etait « un IDENTIFIANT DE LECTURE » et que « le poser dans une requete
     # n'attribue rien du tout ». Cette croyance a fait qu'on ne l'a jamais
     # passe -- et le compteur de revenus builder a lu ZERO pendant deux
     # semaines, qu'on interpretait comme « pas de volume » au lieu de
     # « pas d'attribution ». Edoardo (Polymarket) a pose la question le
-    # 2026-09-01 ; c'est en cherchant a repondre qu'on l'a vu.
+    # 2026-09-01 ; c'est en cherchant a repondre qu'on l'a vu. La phrase
+    # fautive est corrigee, et le code ne se lit plus qu'a un seul endroit.
     try:
         r = client.place_limit_order(
             token_id=token, price=args.prix, size=args.parts,
-            side=args.cote, post_only=not preneur, builder_code=code,
+            side=args.cote, post_only=not preneur,
+            builder_code=attribution.code,
         )
         print(f"  POSE : {r}")
     except Exception as exc:  # noqa: BLE001

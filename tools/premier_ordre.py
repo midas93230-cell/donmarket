@@ -52,6 +52,7 @@ def main() -> int:
     from dotenv import load_dotenv
     from polymarket import SecureClient
 
+    from donmarket.builder.attribution import order_attribution
     from donmarket.store import vault
 
     parser = argparse.ArgumentParser()
@@ -87,6 +88,12 @@ def main() -> int:
         f"gain brut {rung.gross_edge:.1%} l'aller-retour"
     )
 
+    # L'ATTRIBUTION S'ANNONCE AVANT LA SORTIE EN LECTURE SEULE, comme dans
+    # `poser_ordre.py` : annoncee apres, elle ne serait verifiable qu'en
+    # engageant de l'argent -- donc jamais verifiee a froid.
+    attribution = order_attribution()
+    print("attribution : " + attribution.phrase)
+
     if not args.arm:
         print("\nLECTURE SEULE -- rien n'a ete envoye.")
         return 0
@@ -115,6 +122,11 @@ def main() -> int:
             # Un teneur qui traverse devient preneur et paie les frais au lieu
             # de les eviter -- exactement ce qu'on cherche a ne pas faire.
             post_only=True,
+            # SANS CECI L'ORDRE N'EST ATTRIBUE A PERSONNE. C'est le premier
+            # ordre que cet outil pose : il ouvre le compteur builder, et
+            # un compteur ouvert a zero est indistinguable d'un compteur
+            # absent. L'attribution se joue a la signature, jamais apres.
+            builder_code=attribution.code,
         )
     except Exception as exc:  # noqa: BLE001
         print(f"REFUSE : {str(exc)[:400]}")

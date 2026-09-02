@@ -227,6 +227,7 @@ def main() -> int:
     from dotenv import load_dotenv
     from polymarket import SecureClient
 
+    from donmarket.builder.attribution import order_attribution
     from donmarket.making.runner import flatten
     from donmarket.store import vault
 
@@ -262,6 +263,13 @@ def main() -> int:
     print("=" * 74)
     print("UP / DOWN CRYPTO -- CAPTURE D'ECART AVEC SORTIE FORCEE")
     print("=" * 74)
+
+    # UNE SEULE LECTURE POUR LES TROIS ORDRES de cette boucle (entree,
+    # sortie, liquidation). Trois lectures separees, c'etait trois
+    # occasions d'en oublier une -- et c'est exactement ce qui s'est
+    # produit : les trois etaient oubliees a la fois.
+    attribution = order_attribution()
+    print("attribution : " + attribution.phrase)
     if not args.arm:
         print("\nDESARME -- l'outil affiche son plan et n'envoie rien.")
 
@@ -335,6 +343,12 @@ def main() -> int:
                                 client.place_market_order(
                                     token_id=ouvert["token_id"],
                                     shares=detenu, side="SELL",
+                                    # Une liquidation reste du volume. Elle
+                                    # part en PRENEUR, donc elle paie -- raison
+                                    # de plus pour qu'elle soit au moins
+                                    # attribuee. `place_market_order` expose
+                                    # `builder_code` comme la version limite.
+                                    builder_code=attribution.code,
                                 )
                                 print(f"Position liquidee avant resolution : "
                                       f"{detenu:.4f} parts.")
@@ -427,6 +441,12 @@ def main() -> int:
                         recu = client.place_limit_order(
                             token_id=ouvert["token_id"], price=ouvert["ask"],
                             size=detenu, side="SELL", post_only=True,
+                            # La jambe de SORTIE. Les deux sorties gagnantes
+                            # des 28 et 29 aout sont parties d'un chemin
+                            # equivalent, sans attribution : frais perdus, et
+                            # irrecuperables puisque rien ne se reclame apres
+                            # coup.
+                            builder_code=attribution.code,
                         )
                         if bool(getattr(recu, "success",
                                         getattr(recu, "ok", False))):
@@ -445,6 +465,9 @@ def main() -> int:
                 recu = client.place_limit_order(
                     token_id=choix["token_id"], price=choix["bid"],
                     size=choix["parts"], side="BUY", post_only=True,
+                    # La jambe d'ENTREE. Un aller-retour non attribue sur les
+                    # deux jambes, c'est deux fois le volume perdu.
+                    builder_code=attribution.code,
                 )
                 if bool(getattr(recu, "success", getattr(recu, "ok", False))):
                     ouvert = choix

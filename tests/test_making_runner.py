@@ -149,6 +149,7 @@ class _ClientDouble:
         self.positions = positions or []
         self.ok = ok
         self.poses: list[tuple] = []
+        self.codes: list[str | None] = []
         self.annules: list[list[str]] = []
 
     def list_open_orders(self):
@@ -158,9 +159,16 @@ class _ClientDouble:
         return self.positions
 
     def place_limit_order(
-        self, *, token_id, price, size, side, post_only=False, expiration=None
+        self, *, token_id, price, size, side, post_only=False, expiration=None,
+        builder_code=None,
     ):
+        # `builder_code` figure ici parce qu'il figure dans le SDK. Une doublure
+        # dont la signature s'ecarte de l'original ne teste plus l'original :
+        # tant qu'elle l'ignorait, la boucle pouvait poser des ordres non
+        # attribues sans qu'un seul test ne bronche -- ce qui est exactement ce
+        # qui s'est produit pendant deux semaines.
         self.poses.append((token_id, price, size, side, post_only, expiration))
+        self.codes.append(builder_code)
         return _Recu(ok=self.ok, order_id=f"O-{len(self.poses)}")
 
     def cancel_orders(self, *, order_ids):
@@ -441,3 +449,55 @@ def test_la_boucle_adopte_les_ordres_dune_session_precedente() -> None:
     # et surtout PAS compte comme etranger.
     assert rapport.foreign_seen == 0
     assert any("O-HIER" in lot for lot in client.annules)
+
+
+# --------------------------------------------------------------------------
+# ATTRIBUTION. Ces trois tests sont ceux qui manquaient : la boucle a pose des
+# ordres pendant deux semaines sans code builder, et pas un test ne s'en est
+# apercu parce qu'aucun ne regardait ce champ.
+# --------------------------------------------------------------------------
+
+_CODE_VALIDE = "0x" + "0" * 63 + "1"
+
+
+def test_chaque_ordre_porte_le_code_builder(monkeypatch) -> None:
+    """Le test qui aurait economise deux semaines de volume non attribue."""
+    monkeypatch.setenv("POLYMARKET_BUILDER_CODE", _CODE_VALIDE)
+    client = _ClientDouble()
+    run_making(
+        client, _source(), bankroll=4.0, minutes=1, interval_s=30,
+        max_markets=2, armed=True, sleep=lambda _s: None, now=_horloge(),
+    )
+    assert client.poses, "aucun ordre pose"
+    assert all(c == _CODE_VALIDE for c in client.codes), "ordre sans attribution"
+
+
+def test_un_code_malforme_n_est_pas_envoye_au_clob(monkeypatch) -> None:
+    """Refuser vaut mieux qu'envoyer : le CLOB accepte un code invalide sans
+    broncher, et `/builder/trades` rend alors une page vide impossible a
+    distinguer d'un compte sans volume (mesure du 2026-08-13)."""
+    monkeypatch.setenv("POLYMARKET_BUILDER_CODE", "CHOUCROUTE")
+    client = _ClientDouble()
+    run_making(
+        client, _source(), bankroll=4.0, minutes=1, interval_s=30,
+        max_markets=2, armed=True, sleep=lambda _s: None, now=_horloge(),
+    )
+    assert client.poses, "aucun ordre pose"
+    assert all(c is None for c in client.codes)
+
+
+def test_sans_code_configure_les_ordres_partent_quand_meme(monkeypatch) -> None:
+    """L'attribution ne doit JAMAIS bloquer une execution.
+
+    Le compte peut avoir des positions ouvertes a coter ; refuser de trader
+    faute de reglage builder transformerait une perte de revenu accessoire en
+    perte de position. On part non attribue, et on le journalise.
+    """
+    monkeypatch.delenv("POLYMARKET_BUILDER_CODE", raising=False)
+    client = _ClientDouble()
+    rapport = run_making(
+        client, _source(), bankroll=4.0, minutes=1, interval_s=30,
+        max_markets=2, armed=True, sleep=lambda _s: None, now=_horloge(),
+    )
+    assert rapport.placed > 0
+    assert all(c is None for c in client.codes)

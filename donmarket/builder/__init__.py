@@ -27,8 +27,10 @@ from .attribution import (
     AttributionNotConfigured,
     BuilderAttribution,
     attribution_status,
+    OrderAttribution,
     build_builder_config,
     load_attribution,
+    order_attribution,
 )
 from .remote import (
     RemoteAttribution,
@@ -73,6 +75,7 @@ __all__ = [
     "ImpliedRate",
     "InvalidBuilderCode",
     "LeaderboardEntry",
+    "OrderAttribution",
     "Projection",
     "RemoteAttribution",
     "RemoteAttributionUnavailable",
@@ -94,6 +97,7 @@ __all__ = [
     "load_attribution",
     "load_remote_config",
     "normalise_builder_code",
+    "order_attribution",
     "remote_status",
     "platform_fee_usd",
     "published_max_bps",

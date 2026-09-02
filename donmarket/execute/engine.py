@@ -363,6 +363,28 @@ def execute_plan(
     sent: list[SentOrder] = []
     failed: list[tuple[object, str]] = []
 
+    # POURQUOI AUCUN `builder_code` ICI, alors que les six autres poseurs
+    # d'ordres en ont un depuis le 2026-09-02. Ce n'est pas un oubli, c'est un
+    # SDK different, et le noter evite qu'on « repare » ce fichier au prochain
+    # passage :
+    #
+    #   `py_clob_client.clob_types.OrderArgs` porte exactement huit champs --
+    #   token_id, price, size, side, fee_rate_bps, nonce, expiration, taker --
+    #   et `post_order(order, orderType, post_only)` n'en prend pas davantage.
+    #   Il n'existe AUCUN parametre d'attribution par ordre sur ce chemin
+    #   (verifie par introspection le 2026-09-02, py-clob-client 0.34.6).
+    #   L'attribution s'y fait entierement au niveau du CLIENT, par le
+    #   `builder_config=` passe dans `build_clob_client` ci-dessus -- ce qui
+    #   etait deja branche, et reste la seule voie possible ici.
+    #
+    # DETTE SEPAREE, PLUS GRAVE QUE L'ATTRIBUTION : `py-clob-client` est
+    # ARCHIVE (« no longer functional, should not be used ») et le CLOB rejette
+    # ses ordres par « invalid order version, please use the latest
+    # clob-client ». Ce moteur est donc probablement mort a l'envoi, pas
+    # seulement non attribue. Le reste du depot est passe a `polymarket-client`
+    # le 2026-08-20 ; ce fichier ne l'a pas suivi. A traiter comme une
+    # migration a part entiere, avec une mesure a l'appui -- pas au detour d'un
+    # correctif d'attribution.
     for order in decision.allowed:
         try:
             signed = client.create_order(

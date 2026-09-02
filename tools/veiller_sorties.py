@@ -33,6 +33,11 @@ import time
 
 sys.path.insert(0, ".")
 
+# Importe en tete, malgre l'habitude d'imports paresseux dans ces outils :
+# `attribution` ne tire que `os`, `dataclasses` et `re`. Le SDK de signature,
+# lui, reste paresseux a l'interieur du module.
+from donmarket.builder.attribution import order_attribution  # noqa: E402
+
 logging.basicConfig(level=logging.INFO, format="%(asctime)s  %(levelname)-7s %(message)s")
 logging.getLogger("httpx").setLevel(logging.WARNING)
 logger = logging.getLogger("veille")
@@ -72,6 +77,16 @@ def carnet(session, token_id: str):
 
 
 def une_passe(client, session, marches, armer: bool) -> None:
+    # UNE SEULE LECTURE PAR PASSE, en tete : l'ancienne version appelait
+    # `os.getenv` deux fois par ordre, une fois pour l'envoyer et une fois pour
+    # dire s'il avait ete envoye. Deux lectures d'une meme valeur peuvent
+    # diverger, et c'est precisement la ligne de journal qui aurait menti.
+    attribution = order_attribution()
+    if not attribution.is_attributed:
+        # En WARNING et non en DEBUG : cette boucle vend des positions REELLES.
+        # Chaque passe muette est du volume perdu sans reclamation possible.
+        logger.warning("attribution %s", attribution.phrase)
+
     positions = {str(p.token_id): p for p in pages(client.list_positions())}
     ordres = pages(client.list_open_orders())
     vend_deja = {str(o.token_id) for o in ordres if o.side == "SELL"}
@@ -114,14 +129,14 @@ def une_passe(client, session, marches, armer: bool) -> None:
             # `donmarket/builder/attribution.py` affirmait que joindre le code a
             # une requete « n'attribue rien du tout ». Le SDK l'expose pourtant
             # sur `place_limit_order`. Trouve le 2026-09-01 en repondant a la
-            # question d'Edoardo (Polymarket).
+            # question d'Edoardo (Polymarket). Le code vient maintenant de
+            # `order_attribution()`, qui le VALIDE : `os.getenv` laissait passer
+            # une faute de frappe que le CLOB accepte sans rien dire.
             r = client.place_limit_order(token_id=token_id, price=prix,
                                          size=detenu, side="SELL",
                                          post_only=True,
-                                         builder_code=os.getenv(
-                                             "POLYMARKET_BUILDER_CODE") or None)
-            logger.info("  pose : %s (attribution %s)", r,
-                        "ok" if os.getenv("POLYMARKET_BUILDER_CODE") else "AUCUNE")
+                                         builder_code=attribution.code)
+            logger.info("  pose : %s (attribution : %s)", r, attribution.phrase)
         except Exception as exc:  # noqa: BLE001
             logger.error("  REFUSE : %s", str(exc)[:300])
 
