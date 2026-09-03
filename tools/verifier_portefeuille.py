@@ -395,8 +395,26 @@ def rapport(wallet: str, actes: list, compta: dict, annonce: float | None,
                   "prouver un\n  historique de 32 614 trades : le registre "
                   "public est tronque a la source.")
         elif len(actes) >= limite:
-            print(f"  ATTENTION : plafond local de {limite} actes atteint. "
-                  "Relancer avec --max plus haut.")
+            # MEME SEVERITE QUE LE PLAFOND DE L'API, parce que c'est la meme
+            # ignorance. Le 2026-09-03 ce cas n'imprimait qu'un « ATTENTION »
+            # au milieu du rapport puis annoncait « PLANCHER GARANTI : -16,3 %
+            # ». Relance a 60000 actes sur le MEME portefeuille : 32 346 actes,
+            # 74 jours au lieu de 11, plancher -4,2 %. Le premier chiffre etait
+            # faux d'un facteur 4 et se donnait pour une garantie -- exactement
+            # ce que cet outil existe pour denoncer.
+            #
+            # SEULE DIFFERENCE A CONSERVER : ce plafond-la est RATTRAPABLE.
+            # Celui de l'API ne l'est pas, et y conseiller --max serait
+            # conseiller une action impossible.
+            print("\n  *** NON VERIFIABLE — HISTORIQUE TRONQUE PAR NOTRE "
+                  "PROPRE PLAFOND. ***\n"
+                  f"  La lecture s'est arretee a {limite} actes et "
+                  "l'historique continue. Aucun\n  total, taux, ratio ni "
+                  "plancher ci-dessous ne vaut pour ce compte : ils ne\n"
+                  "  portent que sur la fenetre lue, qui est la plus RECENTE, "
+                  "donc la moins\n  representative d'un historique long.\n"
+                  f"  Relancer avec --max nettement au-dessus de {limite} "
+                  "AVANT de citer un chiffre.")
     print(f"  repartition : {dict(compta['types'])}")
 
     print(f"\nDEPOTS      : {compta['depots']:>12.2f} $   <-- le denominateur "
@@ -444,7 +462,10 @@ def rapport(wallet: str, actes: list, compta: dict, annonce: float | None,
     # UN PLANCHER N'EST GARANTI QUE SUR UN HISTORIQUE COMPLET. Sur une fenetre
     # tronquee il ne vaut que pour la fenetre, et l'appeler « garanti » serait
     # exactement l'abus de confiance qu'on reproche aux annonces.
-    titre = "PLANCHER GARANTI" if not plafond else \
+    # `tronque` et non `plafond` : les DEUX troncatures interdisent le mot
+    # « garanti », qu'elles viennent de l'API ou de notre propre limite.
+    tronque = plafond or len(actes) >= limite
+    titre = "PLANCHER GARANTI" if not tronque else \
         f"PLANCHER SUR LA FENETRE LUE SEULEMENT ({len(actes)} derniers actes)"
     print(f"\n{titre} : {plancher:+.2f} $ "
           f"pour {compta['depots']:.2f} $ deposes", end="")

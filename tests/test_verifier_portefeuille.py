@@ -123,3 +123,65 @@ def test_le_taux_de_reussite_ne_compte_que_les_soldees(outil):
     assert len(ouverts) == 1, (
         "100 % de reussite affichable avec une perdante au bilan : "
         "le taux sur soldees seules est structurellement surestime")
+
+
+# --------------------------------------------------------------------------
+# 4. LE PLAFOND LOCAL — l'erreur du 2026-09-03, evitee de justesse.
+#
+# Lance sans `--max`, l'outil s'arrete a 5000 actes, imprime « ATTENTION :
+# plafond local atteint » au milieu du rapport, puis annonce quand meme
+# « PLANCHER GARANTI : -16,3 % ». Relance a 60000 actes sur le MEME
+# portefeuille : 32 346 actes, 74 jours au lieu de 11, et un plancher de
+# -4,2 %. Le premier chiffre etait faux d'un facteur 4 et se presentait comme
+# une garantie.
+#
+# Le plafond de l'API, lui, etait deja traite avec rigueur (« NON VERIFIABLE »,
+# titre du plancher change). Deux fois la meme ignorance, deux traitements
+# opposes : c'est cette asymetrie qui a produit le chiffre faux.
+# --------------------------------------------------------------------------
+
+
+def _rapport_texte(outil, capsys, actes, limite, plafond=False):
+    # Les actes DOIVENT porter un horodatage : le bloc qui annonce une
+    # troncature vit sous `if dates:`. Une doublure sans timestamp ne
+    # l'atteint jamais et le test passerait au vert sans rien verifier.
+    from datetime import datetime, timedelta, timezone
+
+    base = datetime(2026, 8, 21, tzinfo=timezone.utc)
+    for n, acte in enumerate(actes):
+        acte.timestamp = base + timedelta(days=n)
+    outil.rapport("0xtest", actes, outil.comptabiliser(actes), None,
+                  limite, plafond)
+    return capsys.readouterr().out
+
+
+def test_un_plancher_atteint_localement_n_est_JAMAIS_dit_garanti(outil, capsys):
+    """Le mot « garanti » sur une fenetre partielle est l'abus qu'on denonce."""
+    actes = [Acte("DEPOSIT", amount=100) for _ in range(3)]
+    texte = _rapport_texte(outil, capsys, actes, limite=3)
+    assert "PLANCHER GARANTI" not in texte
+
+
+def test_le_plafond_local_est_annonce_comme_un_refus_pas_un_conseil(outil, capsys):
+    actes = [Acte("DEPOSIT", amount=100) for _ in range(3)]
+    texte = _rapport_texte(outil, capsys, actes, limite=3)
+    assert "NON VERIFIABLE" in texte
+
+
+def test_le_plafond_local_dit_qu_il_est_RATTRAPABLE(outil, capsys):
+    """Difference reelle avec le plafond de l'API : celui-la se releve.
+
+    Ne pas les confondre. Sur le plafond de l'API, conseiller `--max` serait
+    conseiller une action impossible.
+    """
+    actes = [Acte("DEPOSIT", amount=100) for _ in range(3)]
+    texte = _rapport_texte(outil, capsys, actes, limite=3)
+    assert "--max" in texte
+
+
+def test_un_historique_complet_garde_son_plancher_garanti(outil, capsys):
+    """Le garde-fou ne doit pas se declencher quand tout a ete lu."""
+    actes = [Acte("DEPOSIT", amount=100)]
+    texte = _rapport_texte(outil, capsys, actes, limite=5000)
+    assert "PLANCHER GARANTI" in texte
+    assert "NON VERIFIABLE" not in texte
