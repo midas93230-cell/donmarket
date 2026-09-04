@@ -189,7 +189,7 @@
 </style>
 <div class="wrap stack">
 <header class="masthead stack">
-  <p class="eyebrow">DONMARKET &amp;middot; RATES AS OF 31 AUGUST 2026</p>
+  <p class="eyebrow">DONMARKET &amp;middot; RATES AS OF 4 SEPTEMBER 2026</p>
   <h1>Work with DON</h1>
   <p class="dek"><b>You claim a result and nobody believes you.</b> I verify claims on chain and publish what I find &mdash; whatever it says. That last part is the whole product: a number nobody can accuse you of writing yourself.</p>
   <p class="byline">Fixed prices &middot; USDC on Polygon &middot; Open source &middot; No trading signals</p>
@@ -219,12 +219,50 @@ the person you are trying to convince.</p>
 </section>
 
 <section>
+<h2>What one looks like</h2>
+<p class="sub">Published 3 September 2026, on a wallet a stranger handed me in
+public after I wrote &ldquo;give me the address and I publish what comes out&rdquo;.
+Delivered the same day.</p>
+
+<p><b>The claim.</b> A $5,200 deposit turned into roughly $492,000 of profit in
+three months. 10,000% return. Posted on Reddit with a screenshot, as they always
+are.</p>
+
+<p><b>What the chain says.</b> 32,346 acts read end to end, 19 June to
+2 September, no truncation.</p>
+
+<div class="scroller"><table>
+<thead><tr><th class="l">Measured</th><th class="num">Value</th></tr></thead>
+<tbody>
+<tr><td><span class='name'>Deposits</span><br><span class='small'>The denominator nobody cites. The claim said $5,200.</span></td><td class='num'><b>$39,662,496</b></td></tr>
+<tr><td><span class='name'>Withdrawals</span><br><span class='small'>$1.12M <b>below</b> deposits. Not a loss &mdash; capital is in open positions &mdash; but nothing has come out net.</span></td><td class='num'><b>$38,538,281</b></td></tr>
+<tr><td><span class='name'>Settled positions</span><br><span class='small'>275 closed, +$16,772,616 realised. A 71.6% win rate that is an <b>upper bound</b>, not a result.</span></td><td class='num'><b>71.6%</b> <br><span class="small">upper bound</span></td></tr>
+<tr><td><span class='name'>Still open</span><br><span class='small'>169 positions, $18,448,947 committed. Unsettled money is not profit.</span></td><td class='num'><b>$18.4M</b></td></tr>
+<tr><td><span class='name'>Guaranteed floor</span><br><span class='small'>The worst case that survives every open position going to zero.</span></td><td class='num'><b>&minus;4.2%</b><br><span class="small">of deposits</span></td></tr>
+<tr><td><span class='name'>Total PnL</span><br><span class='small'><b>Refused.</b> 169 open positions plus 148 events the reader cannot account for &mdash; maker and taker rebates, referral rewards, yield. Each one named in the report.</span></td><td class='num'><b>not stated</b></td></tr>
+</tbody>
+</table></div>
+
+<p><b>The finding is not that the trader lied.</b> The money is real and it
+moved. The finding is that a $5,200 denominator and a $39.7M denominator produce
+two different truths from the same wallet, and only one of them was posted.
+<b>That is what you are buying: the denominator, and a refusal to state the
+number that cannot be stated.</b></p>
+
+<p class="sub">The same run, on a first pass, hit an internal record cap and
+printed a &ldquo;guaranteed floor&rdquo; that was wrong by a factor of four. The tool now
+refuses the word <i>guaranteed</i> whenever any truncation occurred, and says so.
+That fix is public, dated and in the commit history &mdash; which is the only
+reason you should believe the numbers above.</p>
+</section>
+
+<section>
 <h2>Fixed prices</h2>
 <p class="sub">A fixed price means you can decide in ten seconds instead of
 estimating my hours. Scope is agreed in writing first, either way.</p>
 <div class="scroller"><table>
 <thead><tr><th class="l">Engagement</th><th class="num">Price</th></tr></thead>
-<tbody><tr><td><span class='name'>Verified track record</span><br><span class='small'>You claim a result. I reconcile the wallet on chain end to end &mdash; deposits, withdrawals, settled versus open positions, a guaranteed floor, and an explicit list of what cannot be verified &mdash; and publish it as a dated page you can link to. Whatever it says.</span></td><td class='num'><b>$150</b></td></tr><tr><td><span class='name'>Order-book health report</span><br><span class='small'>A set of markets measured over several days: which books are tradable, which are dead, spread and tick, depth on both sides, and how long each verdict has held.</span></td><td class='num'><b>$300</b></td></tr><tr><td><span class='name'>Archive access</span><br><span class='small'>The daily verdict archive as JSON, updated every day. Nobody starting today can rebuild it &mdash; it only exists because it was measured day after day.</span></td><td class='num'><b>$50</b><br><span class="small">per month</span></td></tr></tbody>
+<tbody><tr><td><span class='name'>Verified track record</span><br><span class='small'>You claim a result. I reconcile the wallet on chain end to end &mdash; deposits, withdrawals, settled versus open positions, a guaranteed floor, and an explicit list of what cannot be verified &mdash; and publish it as a dated page you can link to. Whatever it says.</span></td><td class='num'><b>$300</b></td></tr><tr><td><span class='name'>Order-book health report</span><br><span class='small'>A set of markets measured over several days: which books are tradable, which are dead, spread and tick, depth on both sides, and how long each verdict has held.</span></td><td class='num'><b>$300</b></td></tr><tr><td><span class='name'>Archive access</span><br><span class='small'>The daily verdict archive as JSON, updated every day. Nobody starting today can rebuild it &mdash; it only exists because it was measured day after day.</span></td><td class='num'><b>$50</b><br><span class="small">per month</span></td></tr></tbody>
 </table></div>
 <p>Anything that does not fit the boxes above: <b>$50/hour</b>, five hours
 minimum.</p>
@@ -267,7 +305,7 @@ tooling around it. If a number cannot be verified, the deliverable says so
 <p>Email <a href="mailto:midas93230@gmail.com">midas93230@gmail.com</a> with what you want measured.
 A useful first message is one wallet address or one market slug, and the
 question you actually want answered.</p>
-<p class="small">Page generated 31 August 2026. The figures above are read from the
+<p class="small">Page generated 4 September 2026. The figures above are read from the
 latest measurement rather than typed in, so they cannot quietly go stale.</p>
 </section>
 </main>
